@@ -410,7 +410,7 @@ class CCD_Caen:
 		return self.total_events
 
 	def CreateRootFile(self):
-		settings_bin_path = self.settings.outdir + '/Runs/{f}.settings'.format(f=self.settings.filename)
+		settings_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}.settings'.format(f=self.settings.filename))
 		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path], close_fds=True)
 		del settings_bin_path
 

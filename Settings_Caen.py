@@ -68,6 +68,9 @@ class Settings_Caen:
 		self.struct_fmt = '@{p}H'.format(p=self.points)
 		self.struct_len = struct.calcsize(self.struct_fmt)
 
+		self.hv_struct_fmt = '@IIIff' # struct for hv file: starting event is a uint, time in seconds is a uint, nanoseconds is a uint, voltage is float32, current is float32
+		self.hv_struct_len = struct.calcsize(self.hv_struct_fmt)
+
 		self.bar = None
 
 	def ReadInputFile(self):
@@ -223,7 +226,7 @@ class Settings_Caen:
 						else:
 							dest_file.write(line)
 
-				dest_file.write('\n# configuration for each channel [0] to [16], although it only has 8 channels ;)')
+				dest_file.write('\n# configuration for each channel [0] to [15], although it only has 8 channels ;)')
 				for ch in xrange(16):
 					dest_file.write('\n\n[{ch}]'.format(ch=ch))
 					if ch == signal.ch or ch == trigger.ch or ch == ac.ch:

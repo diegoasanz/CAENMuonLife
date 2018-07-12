@@ -1,0 +1,100 @@
+[COMMON]
+
+# open the digitezer
+OPEN PCI 1 0 32100000
+
+# GNUPLOT path, normally /usr/bin/
+GNUPLOT_PATH	"/usr/bin/"
+
+# output format can be BINARY or ASCII
+OUTPUT_FILE_FORMAT	BINARY
+
+# if OUTPUT_FILE_HEADER is YES, the structure of the event has to be changed in self.struct_fmt to include the header
+OUTPUT_FILE_HEADER NO
+
+# specify the amount of samples to save. This defines the event window
+RECORD_LENGTH	2560
+
+TEST_PATTERN	NO
+
+ENABLE_DES_MODE	NO
+
+# use external trigger. Options are: DISABLED, ACQUISITION_ONLY, ACQUISITION_AND_TRGOUT
+EXTERNAL_TRIGGER	DISABLED
+
+# specify maximum number of events to read out in one Block Transfer. Must be between 1 and 1023
+MAX_NUM_EVENTS_BLT	1
+
+# the percentage of the amount of data stored after the trigger in the event window. Has an offset of ~1.6... only accepts integers
+POST_TRIGGER	88
+
+# number of events that have to be ready before readout when the IRQ is asserted. 0 means run continuously. 1023 is the maximum
+USE_INTERRUPT	0
+
+# type of the front panel LEMO connectors: NIM, TTL
+
+FPIO_LEVEL	NIM
+
+SKIP_STARTUP_CALIBRATION	NO
+
+CHANNEL_TRIGGER	DISABLED
+
+# configuration for each channel [0] to [16], although it only has 8 channels ;)
+
+[0]
+ENABLE_INPUT	NO
+
+[1]
+ENABLE_INPUT	NO
+
+[2]
+ENABLE_INPUT	NO
+
+[3]
+ENABLE_INPUT	YES
+PULSE_POLARITY	NEGATIVE
+DC_OFFSET	-45
+CHANNEL_TRIGGER	DISABLED
+
+[4]
+ENABLE_INPUT	NO
+
+[5]
+ENABLE_INPUT	NO
+
+[6]
+ENABLE_INPUT	YES
+PULSE_POLARITY	NEGATIVE
+DC_OFFSET	-47
+CHANNEL_TRIGGER	ACQUISITION_ONLY
+TRIGGER_THRESHOLD	15204
+
+[7]
+ENABLE_INPUT	YES
+PULSE_POLARITY	NEGATIVE
+DC_OFFSET	-48
+CHANNEL_TRIGGER	DISABLED
+
+[8]
+ENABLE_INPUT	NO
+
+[9]
+ENABLE_INPUT	NO
+
+[10]
+ENABLE_INPUT	NO
+
+[11]
+ENABLE_INPUT	NO
+
+[12]
+ENABLE_INPUT	NO
+
+[13]
+ENABLE_INPUT	NO
+
+[14]
+ENABLE_INPUT	NO
+
+[15]
+ENABLE_INPUT	NO

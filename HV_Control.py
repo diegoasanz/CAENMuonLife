@@ -34,8 +34,8 @@ class HV_Control:
 		self.supply_number = 0
 		self.time_update = 2.0
 		self.out_file = None
-		self.hv_struct = '@IIIff' # struct for hv file: starting event is a uint, time in seconds is a uint, nanoseconds is a uint, voltage is float32, current is float32
-		self.hv_struct_len = struct.calcsize(self.hv_struct)
+		self.hv_struct = self.settings.hv_struct_fmt
+		self.hv_struct_len = self.settings.hv_struct_len
 		self.hv_struct_pack = None
 		self.out_file_name = 'hvfile_{f}.dat'.format(f=self.settings.filename)
 		self.time0 = None
