@@ -40,7 +40,7 @@ def FindRedundantEvents(settings):
 	types = {settings.sigCh: 'signal_ch', settings.trigCh: 'trigger_ch', settings.acCh: 'veto'} if settings.ac_enable else {settings.sigCh: 'signal_ch', settings.trigCh: 'trigger_ch'}
 	for ch in channels:
 		print '\n', types[ch], ':\n'
-		filename = '{d}/Runs/{f}_{t}.dat'.format(d=settings.outdir, f=settings.filename, t=types[ch])
+		filename = '{d}/Runs/{f}/{f}_{t}.dat'.format(d=settings.outdir, f=settings.filename, t=types[ch])
 		f0 = open(filename, 'rb')
 		events = int(np.floor(os.path.getsize(filename) / settings.struct_len))
 		for ev0 in xrange(events):

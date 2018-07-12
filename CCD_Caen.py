@@ -387,7 +387,7 @@ class CCD_Caen:
 		self.total_events = 0
 		print 'Getting {n} events...'.format(n=self.settings.num_events)
 		if self.settings.simultaneous_conversion:
-			self.CreateRootFile()
+			self.CreateRootFile(files_moved=False)
 		else:
 			self.settings.CreateProgressBar(self.settings.num_events)
 			self.settings.bar.start()
@@ -409,9 +409,10 @@ class CCD_Caen:
 			self.CloseSubprocess('converter', stdin=False, stdout=False)
 		return self.total_events
 
-	def CreateRootFile(self):
-		settings_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}.settings'.format(f=self.settings.filename))
-		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path], close_fds=True)
+	def CreateRootFile(self, files_moved=False):
+		settings_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}/{f}.settings'.format(f=self.settings.filename))
+		data_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}'.format(f=self.settings.filename)) if files_moved else os.getcwd()
+		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path, data_bin_path], close_fds=True)
 		del settings_bin_path
 
 	def CloseHVClient(self):
@@ -420,13 +421,13 @@ class CCD_Caen:
 
 	def SavePickles(self):
 		# save objects of settings, signal_ch, trigger_ch and veto_ch
-		with open('{d}/Runs/{f}.settings'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fs:
+		with open('{d}/Runs/{f}/{f}.settings'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fs:
 			pickle.dump(self.settings, fs, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}.signal_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fsig:
+		with open('{d}/Runs/{f}/{f}.signal_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fsig:
 			pickle.dump(self.signal_ch, fsig, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}.trigger_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as ft:
+		with open('{d}/Runs/{f}/{f}.trigger_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as ft:
 			pickle.dump(self.trigger_ch, ft, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}.veto'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fv:
+		with open('{d}/Runs/{f}/{f}.veto'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fv:
 			pickle.dump(self.veto_ch, fv, pickle.HIGHEST_PROTOCOL)
 
 	def PrintPlotLimits(self, ti=-5.12e-7, tf=4.606e-6, vmin=-0.7, vmax=0.05):
@@ -456,7 +457,7 @@ def main():
 		ccd.settings.RenameDigitiserSettings()
 		ccd.CloseHVClient()
 		if not ccd.settings.simultaneous_conversion:
-			ccd.CreateRootFile()
+			ccd.CreateRootFile(files_moved=True)
 			while ccd.pconv.poll() is None:
 				continue
 			ccd.CloseSubprocess('converter', stdin=False, stdout=False)

@@ -183,11 +183,6 @@ class Settings_Caen:
 		self.fit_vcal_signal_params_errors = np.array([np.sqrt((self.fit_signal_vcal_params_errors[0] / self.fit_signal_vcal_params[1])**2 + (self.fit_signal_vcal_params[0] * self.fit_signal_vcal_params_errors[1] / (self.fit_signal_vcal_params[1] ** 2))**2)], dtype='f8')
 
 	def SetOutputFiles(self):
-		if not os.path.isdir(self.outdir):
-			os.makedirs(self.outdir)
-		if not os.path.isdir('{d}/Runs'.format(d=self.outdir)):
-			os.makedirs('{d}/Runs'.format(d=self.outdir))
-
 		def AddSuffix(string1):
 			string1 += '_Pos' if self.bias >= 0 else '_Neg'
 			string1 += '_{b}V'.format(b=abs(self.bias))
@@ -198,11 +193,12 @@ class Settings_Caen:
 		self.filename = '{d}_{p}_ccd'.format(p=self.prefix, d=self.dut)
 		self.filename = AddSuffix(self.filename)
 
-	# def Delay(self, ti=1.0):
-	# 	t0 = time.time()
-	# 	while time.time() - t0 < ti:
-	# 		continue
-	# 	return
+		if not os.path.isdir(self.outdir):
+			os.makedirs(self.outdir)
+		if not os.path.isdir('{d}/Runs'.format(d=self.outdir)):
+			os.makedirs('{d}/Runs'.format(d=self.outdir))
+		if not os.path.isdir('{d}/Runs/{f}'.format(d=self.outdir, f=self.filename)):
+			os.makedirs('{d}/Runs/{f}'.format(d=self.outdir, f=self.filename))
 
 	def SetupDigitiser(self, doBaseLines=False, signal=None, trigger=None, ac=None, events_written=0):
 		print 'Creating digitiser CAEN V1730D configuration file... ', ; sys.stdout.flush()
@@ -260,15 +256,15 @@ class Settings_Caen:
 
 	def MoveBinaryFiles(self):
 		print 'Moving binary files... ', ; sys.stdout.flush()
-		shutil.move('raw_wave{chs}.dat'.format(chs=self.sigCh), '{d}/Runs/{f}_signal.dat'.format(d=self.outdir, f=self.filename))
-		shutil.move('raw_wave{cht}.dat'.format(cht=self.trigCh), '{d}/Runs/{f}_trigger.dat'.format(d=self.outdir, f=self.filename))
-		shutil.move('raw_wave{cha}.dat'.format(cha=self.acCh), '{d}/Runs/{f}_veto.dat'.format(d=self.outdir, f=self.filename))
+		shutil.move('raw_wave{chs}.dat'.format(chs=self.sigCh), '{d}/Runs/{f}/{f}_signal.dat'.format(d=self.outdir, f=self.filename))
+		shutil.move('raw_wave{cht}.dat'.format(cht=self.trigCh), '{d}/Runs/{f}/{f}_trigger.dat'.format(d=self.outdir, f=self.filename))
+		shutil.move('raw_wave{cha}.dat'.format(cha=self.acCh), '{d}/Runs/{f}/{f}_veto.dat'.format(d=self.outdir, f=self.filename))
 		self.RemoveBinaries()
 		print 'Done'
 
 	def RenameDigitiserSettings(self):
 		print 'Moving digitiser settings... ', ; sys.stdout.flush()
-		shutil.move('{d}/WaveDumpConfig_CCD.txt'.format(d=self.outdir), '{d}/WDConfig_CCD_{f}.txt'.format(d=self.outdir, f=self.filename))
+		shutil.move('{d}/WaveDumpConfig_CCD.txt'.format(d=self.outdir), '{d}/Runs/{f}/WDConfig_CCD_{f}.txt'.format(d=self.outdir, f=self.filename))
 		print 'Done'
 
 	def RemoveBinaries(self):

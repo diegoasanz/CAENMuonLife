@@ -20,20 +20,21 @@ from copy import deepcopy
 # from DataAcquisition import DataAcquisition
 
 class Converter_Caen:
-	def __init__(self, settings_object=''):
+	def __init__(self, settings_object='', data_path=''):
 		self.settings_object = settings_object
 
 		self.settings_full_path = os.path.abspath(settings_object)
-		self.working_dir = '/'.join(self.settings_full_path.split('/')[:-1])
+		self.output_dir = '/'.join(self.settings_full_path.split('/')[:-1])
+		self.raw_dir = self.output_dir if data_path == '' else data_path
 		self.filename = self.settings_full_path.split('/')[-1].split('.settings')[0]
-		self.settings = pickle.load(open('{d}/{f}.settings'.format(d=self.working_dir, f=self.filename), 'rb'))
-		self.signal_ch = pickle.load(open('{d}/{f}.signal'.format(d=self.working_dir, f=self.filename), 'rb'))
-		self.trigger_ch = pickle.load(open('{d}/{f}.trigger'.format(d=self.working_dir, f=self.filename), 'rb'))
-		self.veto_ch = pickle.load(open('{d}/{f}.veto'.format(d=self.working_dir, f=self.filename), 'rb'))
+		self.settings = pickle.load(open('{d}/{f}.settings'.format(d=self.output_dir, f=self.filename), 'rb'))
+		self.signal_ch = pickle.load(open('{d}/{f}.signal'.format(d=self.output_dir, f=self.filename), 'rb'))
+		self.trigger_ch = pickle.load(open('{d}/{f}.trigger'.format(d=self.output_dir, f=self.filename), 'rb'))
+		self.veto_ch = pickle.load(open('{d}/{f}.veto'.format(d=self.output_dir, f=self.filename), 'rb'))
 
-		self.signal_path = self.working_dir + '/' + self.filename + '_signal.dat'
-		self.trigger_path = self.working_dir + '/' + self.filename + '_trigger.dat'
-		self.veto_path = self.working_dir + '/' + self.filename + '_veto.dat'
+		self.signal_path = self.raw_dir + '/' + self.filename + '_signal.dat'
+		self.trigger_path = self.raw_dir + '/' + self.filename + '_trigger.dat'
+		self.veto_path = self.raw_dir + '/' + self.filename + '_veto.dat'
 		self.points = self.settings.points
 		self.num_events = self.settings.num_events
 		self.struct_len = self.settings.struct_len
@@ -110,7 +111,7 @@ class Converter_Caen:
 			print 'Start creating root file simultaneously with data taking'
 		else:
 			print 'Start creating root file'
-		self.raw_file = ro.TFile('{wd}/{r}.root'.format(wd=self.working_dir, r=self.filename), 'RECREATE')
+		self.raw_file = ro.TFile('{wd}/{r}.root'.format(wd=self.output_dir, r=self.filename), 'RECREATE')
 		self.raw_tree = ro.TTree(self.filename, self.filename)
 		self.raw_tree.SetAutoFlush(100)
 		self.raw_tree.SetAutoSave(-10485760)
@@ -389,8 +390,12 @@ class Converter_Caen:
 
 if __name__ == '__main__':
 	settings_object = str(sys.argv[1])  # settings pickle path
+	if len(sys.argv) > 2:
+		data_path = str(sys.argv[2])  # path where the binary data in adcs is
+	else:
+		data_path = ''
 
-	converter = Converter_Caen(settings_object=settings_object)
+	converter = Converter_Caen(settings_object=settings_object, data_path=data_path)
 
 	converter.SetupRootFile()
 	converter.GetBinariesNumberWrittenEvents()

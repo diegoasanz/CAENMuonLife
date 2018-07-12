@@ -219,7 +219,7 @@ class HV_Control:
 			os.remove(self.out_file_name)
 
 	def MoveLogFolder(self):
-		path_dir = '{d}/Runs/HV_{f}'.format(d=self.settings.outdir, f=self.filename)
+		path_dir = '{d}/Runs/{f}/HV_{f}'.format(d=self.settings.outdir, f=self.filename)
 		if os.path.isdir(path_dir):
 			shutil.rmtree(path_dir)
 		shutil.move(self.filename, path_dir)

@@ -17,7 +17,7 @@ import shutil
 
 
 class Channel_Caen:
-	def __init__(self, ch, ch_type, verb=False):
+	def __init__(self, ch=3, ch_type='signal', verb=False):
 		self.ch = ch
 		self.type = ch_type
 		self.verb = verb
