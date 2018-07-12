@@ -33,7 +33,7 @@ class Channel_Caen:
 
 	def Set_Channel(self, settings):
 		if self.type == 'signal_ch':
-			self.edge = -int(settings.bias/abs(settings.bias))
+			self.edge = -int(settings.bias/abs(settings.bias)) if settings.bias != 0 else -1
 			self.Calculate_DC_Offset_Percentage(settings)
 			# Channels 3, 6 and 7 were calibrated with dc voltage and multimeter. The calibration files are on 20180419ch{X}/Runs
 			if self.ch == 3:
