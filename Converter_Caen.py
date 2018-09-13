@@ -28,8 +28,8 @@ class Converter_Caen:
 		self.raw_dir = self.output_dir if data_path == '' else data_path
 		self.filename = self.settings_full_path.split('/')[-1].split('.settings')[0]
 		self.settings = pickle.load(open('{d}/{f}.settings'.format(d=self.output_dir, f=self.filename), 'rb'))
-		self.signal_ch = pickle.load(open('{d}/{f}.signal'.format(d=self.output_dir, f=self.filename), 'rb'))
-		self.trigger_ch = pickle.load(open('{d}/{f}.trigger'.format(d=self.output_dir, f=self.filename), 'rb'))
+		self.signal_ch = pickle.load(open('{d}/{f}.signal_ch'.format(d=self.output_dir, f=self.filename), 'rb'))
+		self.trigger_ch = pickle.load(open('{d}/{f}.trigger_ch'.format(d=self.output_dir, f=self.filename), 'rb'))
 		self.veto_ch = pickle.load(open('{d}/{f}.veto'.format(d=self.output_dir, f=self.filename), 'rb'))
 
 		self.signal_path = self.raw_dir + '/' + self.filename + '_signal.dat'
@@ -142,9 +142,9 @@ class Converter_Caen:
 			self.raw_tree.Branch('timeHV', self.hourMinSecBra)
 
 	def GetBinariesNumberWrittenEvents(self):
-		self.signal_written_events = int(round(os.path.getsize(self.signal_path) / self.struct_len))
-		self.trigger_written_events = int(round(os.path.getsize(self.trigger_path) / self.struct_len))
-		self.anti_co_written_events = int(round(os.path.getsize(self.veto_path) / self.struct_len))
+		self.signal_written_events = int(round(os.path.getsize(self.signal_path) / self.struct_len)) if os.path.isfile(self.signal_path) else 0
+		self.trigger_written_events = int(round(os.path.getsize(self.trigger_path) / self.struct_len)) if os.path.isfile(self.trigger_path) else 0
+		self.anti_co_written_events = int(round(os.path.getsize(self.veto_path) / self.struct_len)) if os.path.isfile(self.veto_path) else 0
 
 	def OpenRawBinaries(self):
 		self.fs = open(self.signal_path, 'rb')

@@ -72,7 +72,7 @@ class HV_Control:
 		conf_file = open('config/hv_{f}.cfg'.format(f=self.filename), 'w')
 
 		conf_file.write('[Main]\n')
-		conf_file.write('devices = [{n}]\n'.format(n=num_supplies))
+		conf_file.write('devices = [0]\n'.format(n=num_supplies))
 		conf_file.write('testbeam_name: {f}\n'.format(f=self.filename))
 
 		conf_file.write('\n[Names]\n')
@@ -163,14 +163,19 @@ class HV_Control:
 
 	def GetLastLogFilePath(self):
 		list_logs = glob.glob('{d}/*.log'.format(d=self.logs_dir))
+		if not list_logs:
+			return
 		self.log_file = max(list_logs, key=os.path.getctime)
 		del list_logs
 
 	def ReadLastLine(self, nEvent=0):
 		self.GetLastLogFilePath()
-		current_log = open('{f}'.format(d=self.logs_dir, f=self.log_file), 'r')
-		lines = current_log.readlines()
-		current_log.close()
+		if self.log_file:
+			current_log = open('{f}'.format(d=self.logs_dir, f=self.log_file), 'r')
+			lines = current_log.readlines()
+			current_log.close()
+		else:
+			lines = None
 		temp_time = time.time()
 		self.last_line['event'] = nEvent
 		self.last_line['seconds'] = int(temp_time)
@@ -182,7 +187,7 @@ class HV_Control:
 			if len(temp_line) >= 3:
 				if IsFloat(temp_line[1]) and IsFloat(temp_line[2]):
 					self.last_line['voltage'] = float(temp_line[1])
-					self.last_line['current'] = float(temp_time[2])
+					self.last_line['current'] = float(temp_line[2])
 		return
 
 	def CorrectBias(self, delta_volts):
