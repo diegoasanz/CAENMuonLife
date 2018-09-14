@@ -393,7 +393,6 @@ class CCD_Caen:
 			self.settings.bar.start()
 		self.settings.SetupDigitiser(doBaseLines=False, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch, events_written=self.total_events)
 		while self.total_events < self.settings.num_events:
-			print "Calibrating ADC's...\r", ; sys.stdout.flush()
 			self.sig_written = self.CalculateEventsWritten(self.signal_ch.ch)
 			self.trg_written = self.CalculateEventsWritten(self.trigger_ch.ch)
 			self.veto_written = self.CalculateEventsWritten(self.veto_ch.ch)

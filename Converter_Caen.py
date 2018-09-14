@@ -32,9 +32,9 @@ class Converter_Caen:
 		self.trigger_ch = pickle.load(open('{d}/{f}.trigger_ch'.format(d=self.output_dir, f=self.filename), 'rb'))
 		self.veto_ch = pickle.load(open('{d}/{f}.veto'.format(d=self.output_dir, f=self.filename), 'rb'))
 
-		self.signal_path = self.raw_dir + '/' + self.filename + '_signal.dat'
-		self.trigger_path = self.raw_dir + '/' + self.filename + '_trigger.dat'
-		self.veto_path = self.raw_dir + '/' + self.filename + '_veto.dat'
+		self.signal_path = data_path + '/raw_wave{chs}.dat'.format(chs=self.settings.sigCh) if self.settings.simultaneous_conversion else data_path + '/' + self.filename + '_signal.dat'
+		self.trigger_path = data_path + '/raw_wave{cht}.dat'.format(cht=self.settings.trigCh) if self.settings.simultaneous_conversion else data_path + '/' + self.filename + '_trigger.dat'
+		self.veto_path = data_path + '/raw_wave{cha}.dat'.format(cha=self.settings.acCh) if self.settings.simultaneous_conversion else data_path + '/' + self.filename + '_veto.dat'
 		self.points = self.settings.points
 		self.num_events = self.settings.num_events
 		self.struct_len = self.settings.struct_len
@@ -394,7 +394,6 @@ if __name__ == '__main__':
 		data_path = str(sys.argv[2])  # path where the binary data in adcs is
 	else:
 		data_path = ''
-
 	converter = Converter_Caen(settings_object=settings_object, data_path=data_path)
 
 	converter.SetupRootFile()
