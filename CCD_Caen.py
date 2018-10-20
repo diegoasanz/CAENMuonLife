@@ -86,8 +86,9 @@ class CCD_Caen:
 	def StartHVControl(self):
 		if self.settings.do_hv_control:
 			self.hv_control = HV_Control(self.settings)
-			print 'Waiting {t} seconds for the HVClient to start...'.format(t=wait_time_hv)
+			print 'Waiting {t} seconds for the HVClient to start... '.format(t=wait_time_hv), ; sys.stdout.flush()
 			time.sleep(wait_time_hv)
+			print 'Done'
 			self.hv_control.CheckVoltage()
 
 	def GetBaseLines(self):

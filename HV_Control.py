@@ -153,6 +153,10 @@ class HV_Control:
 		max_tries = 2
 		self.ReadLastLine()
 		delta_voltage = abs(self.last_line['voltage'] - self.bias)
+		do_ramp = False
+		if delta_voltage > 2:
+			do_ramp = True
+			print 'Ramping voltage... ', ; sys.stdout.flush()
 		while delta_voltage > 2 and max_tries != 0:
 			self.CorrectBias(delta_voltage)
 			self.ReadLastLine()
@@ -160,6 +164,8 @@ class HV_Control:
 			max_tries -= 1
 			if max_tries == 0:
 				print '\nCould not set the desired voltage\n'
+				return
+		if do_ramp: print 'Done'
 
 	def GetLastLogFilePath(self):
 		list_logs = glob.glob('{d}/*.log'.format(d=self.logs_dir))
