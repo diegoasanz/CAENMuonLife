@@ -8,6 +8,8 @@ import time
 from ConfigParser import ConfigParser
 from optparse import OptionParser
 
+from collections import OrderedDict
+
 import ROOT as ro
 import numpy as np
 import cPickle as pickle
@@ -22,46 +24,88 @@ trig_rand_time = 0.2
 wait_time_hv = 7
 
 class AnalysisCaenCCD:
-	def __init__(self, directory='.', verbose=False):
+	def __init__(self, directory='.', config='CAENAnalysisConfig.cfg', infile='', bias=0.0, verbose=False):
 		print 'Starting CCD Analysis ...'
-		self.dir = directory
-		self.verb = verbose
-		self.settings = None
-		# self.settings.ReadInputFile()
-		# self.settings.Get_Calibration_Constants()
-		# self.settings.SetOutputFiles()
+		if infile == '' and directory != '.':
+			print 'Is new analysis...'
+			self.dir = directory
+			self.verb = verbose
+			self.settings = None
+			# self.settings.ReadInputFile()
+			# self.settings.Get_Calibration_Constants()
+			# self.settings.SetOutputFiles()
 
-		# Create channel objects for signal, trigger and veto
-		self.signal_ch = None
-		# self.signal_ch.Set_Channel(self.settings)
-		self.trigger_ch = None
-		# self.trigger_ch.Set_Channel(self.settings)
-		self.veto_ch = None
-		# self.veto_ch.Set_Channel(self.settings)
+			# Create channel objects for signal, trigger and veto
+			self.signal_ch = None
+			# self.signal_ch.Set_Channel(self.settings)
+			self.trigger_ch = None
+			# self.trigger_ch.Set_Channel(self.settings)
+			self.veto_ch = None
+			# self.veto_ch.Set_Channel(self.settings)
 
-		self.root_file = None
-		self.tree_name = ''
-		self.root_tree = None
+			self.root_file = None
+			self.tree_name = ''
+			self.root_tree = None
 		# declare extra variables that will be used
-		self.fs0, self.ft0, self.fv0 = None, None, None
-		self.hv_control = None
+
+		elif infile != '' and directory == '.':
+			print 'Is old analysis...'
+			self.config, self.outDir, self.inputFile, self.bias, self.verb = config, '/'.join(infile.split('/')[:-1]), infile.split('/')[-1], bias, verbose
+			self.treeName = '.'.join(self.inputFile.split('.')[:-1])
+			self.fileRaw, self.treeRaw = None, None
+			self.ptsWave, self.event, self.events, self.max_events = 0, np.zeros(1, 'I'), 0, 0
+			self.eventVect = np.empty(0, 'f8')
+			self.timeVect, self.signalWaveVect, self.triggerWaveVect, self.vetoWaveVect = np.empty(0, 'f8'), np.empty(0, 'f8'), np.empty(0, 'f8'), np.empty(0, 'f8')
+
+			self.pedVect, self.pedSigmaVect, self.sigAndPedVect, self.sigAndPedSigmaVect, self.sigVect = None, None, None, None, None
+			self.ped, self.pedSigma, self.sigAndPed, self.sigAndPedSigma, self.sig = np.zeros(1, 'f'), np.zeros(1, 'f'), np.zeros(1, 'f'), np.zeros(1, 'f'), np.zeros(1, 'f')
+			self.vetoedEvent, self.badShape, self.badPedestal = np.empty(0, '?'), np.empty(0, np.dtype('int8')), np.empty(0, '?')
+			self.voltageHV, self.currentHV = np.empty(0, 'f8'), np.empty(0, 'f8')
+			self.timeHV = np.empty(0, 'f8')
+
+			self.signalWaveMeanVect, self.signalWaveSigmaVect = None, None
+
+			self.pedestalIntegrationTime = 0.4e-6
+			self.pedestalTEndPos = -20e-9
+			self.peakTime = 2.121e-6 if self.bias >= 0 else 2.120e-6
+			self.doPeakPos = True
+			self.peakForward = self.pedestalIntegrationTime/2.0
+			self.peakBackward = self.pedestalIntegrationTime/2.0
+			self.doBadPedestalCut = True
+			self.badShapeCut = 2
+			self.doVetoedEventCut = True
+			self.peakPosCut = 1e-6
+			self.currentCut = 10e-9
+
+			self.Load_Config_File()
+
+			self.cut0 = ro.TCut('cut0', '')
+
+			self.branches1DTotal = ['event', 'vetoedEvent', 'badShape', 'badPedestal', 'voltageHV', 'currentHV', 'timeHV', 'peakPosition', 'pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
+			self.branches1DType = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'voltageHV': 'float32', 'currentHV': 'float32', 'timeHV': 'float64', 'peakPosition': 'float32', 'pedestal': 'float32', 'pedestalSigma': 'float32', 'signalAndPedestal': 'float32', 'signalAndPedestalSigma': 'float32', 'signal': 'float32'}
+			self.branchesWavesTotal = ['time', 'voltageSignal', 'voltageTrigger', 'voltageVeto']
+			self.branchesWavesType = {'time': 'float64', 'voltageSignal': 'float64', 'voltageTrigger': 'float64', 'voltageVeto': 'float64'}
+			self.branchesAll = self.branches1DTotal + self.branchesWavesTotal
+
+			self.branches1DLoad = ['event', 'voltageHV', 'currentHV', 'timeHV', 'peakPosition']
+			self.branchesWavesLoad = ['time', 'voltageSignal']
+
+			self.analysisScalarsBranches = ['pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
+
+			self.dicBraVect1D = OrderedDict()
+			self.dicBraVectWaves = OrderedDict()
+
+			self.hasBranch = {}
+
+			self.pedestalTimeIndices = None  # has the indices for the pedestal for each event
+			self.peak_positions = None  # has the peak position in time for the peak of the signal for each event
+			self.peak_position = np.zeros(1, 'f')
+			self.signalTimeIndices = None  # has the indices for the integral of the signal for each event
+
+		else:
+			ExitMessage('I don\'t know what to do. If you want to run the analysis for old files, give inputFile, configFile, bias. If you want to run the analysis for new files, just give the directory where the pickles, data files and root files are.', os.EX_CONFIG)
+
 		self.utils = Utils()
-		self.t0, self.t1, self.t2 = None, None, None
-		self.p, self.pconv = None, None
-		self.total_events = 0
-		self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
-		self.total_events_sig, self.total_events_trig, self.total_events_veto = 0, 0, 0
-		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = 0, 0, 0
-		self.total_merged_data_sig, self.total_merged_data_trig, self.total_merged_data_veto = 0, 0, 0
-		self.doMerge = False
-		self.min_measured_data = 0
-		self.min_data_to_write = 0
-		self.events_to_write = 0
-		self.read_size = 0
-		self.sig_written, self.trg_written, self.veto_written = 0, 0, 0
-		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = 0, 0, 0
-		self.fins, self.fint, self.finv = None, None, None
-		self.datas, self.datat, self.datav = None, None, None
 
 	def LoadTree(self):
 		if not os.path.isdir(self.dir):
@@ -103,389 +147,375 @@ class AnalysisCaenCCD:
 					with open('{d}/{f}.veto'.format(d=self.dir, f=self.tree_name)) as pklveto:
 						self.veto_ch = pickle.load(pklveto)
 
-	def RemoveFiles(self):
-		# used, for example, to remove old files that may have stayed due to crashes
-		if self.fs0:
-			if not self.fs0.closed:
-				self.fs0.close()
-				del self.fs0
-		if self.ft0:
-			if not self.ft0.closed:
-				self.ft0.close()
-				del self.ft0
-		if self.fv0:
-			if not self.fv0.closed:
-				self.fv0.close()
-				del self.fv0
-		channels = [self.signal_ch.ch, self.trigger_ch.ch, self.veto_ch.ch]
-		for ch in channels:
-			if os.path.isfile('raw_waves{c}.dat'.format(c=ch)):
-				os.remove('raw_waves{c}.dat'.format(c=ch))
-			if os.path.isfile('waves{c}.dat'.format(c=ch)):
-				os.remove('waves{c}.dat'.format(c=ch))
-		del channels
 
-	def StartHVControl(self):
-		if self.settings.do_hv_control:
-			self.hv_control = HV_Control(self.settings)
-			print 'Waiting {t} seconds for the HVClient to start... '.format(t=wait_time_hv), ; sys.stdout.flush()
-			time.sleep(wait_time_hv)
-			print 'Done'
-			self.hv_control.CheckVoltage()
 
-	def GetBaseLines(self):
-		self.settings.SetupDigitiser(doBaseLines=True, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch)
-		self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.settings.outdir)], bufsize=-1, stdin=subp.PIPE, close_fds=True)
-		t0 = time.time()
-		self.CreateEmptyFiles()
-		self.CloseFiles()
-		self.GetWaveforms(events=1, stdin=True, stdout=False)
-		if self.total_events >= 1:
-			self.ReadBaseLines()
-			self.settings.RemoveBinaries()
-			self.RemoveFiles()
-		print 'Time getting base lines: {t} seconds'.format(t=(time.time() - t0))
-		del t0
+	def Load_Config_File(self):
+		parser = ConfigParser()
+		if os.path.isfile(self.config):
+			print 'Reading configuration file:', self.config, '...'
+			parser.read(self.config)
 
-	def CreateEmptyFiles(self):
-		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), 'wb')
-		self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), 'wb')
-		self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), 'wb')
+			if parser.has_section('ANALYSIS'):
+				if parser.has_option('ANALYSIS', 'bias'):
+					self.bias = parser.getfloat('ANALYSIS', 'bias')
+				if parser.has_option('ANALYSIS', 'input_file') and self.inputFile == '':
+					self.inputFile = parser.get('ANALYSIS', 'input_file')
+				if parser.has_option('ANALYSIS', 'out_dir') and self.outDir == '':
+					self.outDir = parser.get('ANALYSIS', 'out_dir')
+				if parser.has_option('ANALYSIS', 'max_events'):
+					self.max_events = parser.getint('ANALYSIS', 'max_events')
+				if parser.has_option('ANALYSIS', 'peak_time'):
+					self.peakTime = parser.getfloat('ANALYSIS', 'peak_time') * 1e-6
+				if parser.has_option('ANALYSIS', 'integration_time'):
+					self.pedestalIntegrationTime = parser.getfloat('ANALYSIS', 'integration_time') * 1e-6
+				if parser.has_option('ANALYSIS', 'do_peak_positioning'):
+					self.doPeakPos = parser.getboolean('ANALYSIS', 'do_peak_positioning')
+				if parser.has_option('ANALYSIS', 'transition_time'):
+					self.pedestalTEndPos = parser.getfloat('ANALYSIS', 'transition_time') * 1e-9
+				if parser.has_option('ANALYSIS', 'forward_bakward_ratio'):
+					self.peakForward = self.pedestalIntegrationTime / (1.0 + 1.0 / parser.getfloat('ANALYSIS', 'forward_bakward_ratio'))
+					self.peakBackward = self.pedestalIntegrationTime / (1.0 + parser.getfloat('ANALYSIS', 'forward_bakward_ratio'))
 
-	def OpenFiles(self, mode='rb'):
-		if not self.fs0:
-			self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), mode)
-		if not self.ft0:
-			self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), mode)
-		if not self.fv0:
-			self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), mode)
+			if parser.has_section('CUTS'):
+				if parser.has_option('CUTS', 'bad_pedestal'):
+					self.doBadPedestalCut = parser.getboolean('CUTS', 'bad_pedestal')
+				if parser.has_option('CUTS', 'bad_shape'):
+					self.badShapeCut = parser.getint('CUTS', 'bad_shape')
+				if parser.has_option('CUTS', 'vetoed_events'):
+					self.doVetoedEventCut = parser.getboolean('CUTS', 'vetoed_events')
+				if parser.has_option('CUTS', 'peak_position'):
+					self.peakPosCut = parser.getfloat('CUTS', 'peak_position') * 1e-6
+				if parser.has_option('CUTS', 'current_cut'):
+					self.currentCut = parser.getfloat('CUTS', 'current_cut') * 1e-9
 
-	def CloseFiles(self):
-		if self.ft0:
-			self.ft0.close()
-			if self.ft0.closed:
-				del self.ft0
-				self.ft0 = None
-		if self.fs0:
-			self.fs0.close()
-			if self.fs0.closed:
-				del self.fs0
-				self.fs0 = None
-		if self.fv0:
-			self.fv0.close()
-			if self.fv0.closed:
-				del self.fv0
-				self.fv0 = None
-
-	def GetWaveforms(self, events=1, stdin=False, stdout=False):
-		self.t1 = time.time()
-		# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-		if events == 1:
-			# while self.p.poll() is None:
-			time.sleep(1)
-			self.p.stdin.write('c')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			if self.settings.plot_waveforms:
-				# time.sleep(1)
-				self.p.stdin.write('P')
-				self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('w')
-			self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('t')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('q')
-			self.p.stdin.flush()
-			while self.p.poll() is None:
-				continue
-			if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-			self.ConcatenateBinaries()
-			self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
-			self.settings.RemoveBinaries()
-		else:
-			time.sleep(1)
-			self.p.stdin.write('c')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('W')
-			self.p.stdin.flush()
-			if self.settings.plot_waveforms:
-				# time.sleep(1)
-				self.p.stdin.write('P')
-				self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
-			# time.sleep(1)
-			self.t2 = time.time()
-			while self.p.poll() is None:
-				if time.time() - self.t1 >= self.settings.time_calib:
-					self.p.stdin.write('s')
-					self.p.stdin.flush()
-					self.settings.RemoveBinaries()
-					self.p.stdin.write('c')
-					self.p.stdin.flush()
-					self.p.stdin.write('q')
-					self.p.stdin.flush()
-					time.sleep(1)
-					# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-				elif self.written_events_sig + self.sig_written >= events:
-					self.p.stdin.write('s')
-					self.p.stdin.flush()
-					self.settings.RemoveBinaries()
-					self.p.stdin.write('q')
-					self.p.stdin.flush()
-					time.sleep(1)
-					# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-				else:
-					if self.settings.random_test and (time.time() - self.t2 > trig_rand_time):
-						self.p.stdin.write('t')
-						self.p.stdin.flush()
-						self.t2 = time.time()
-					self.ConcatenateBinaries()
-					if self.settings.do_hv_control:
-						self.hv_control.UpdateHVFile(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-					if not self.settings.simultaneous_conversion:
-						self.settings.bar.update(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-			del self.t1
-			self.t1 = None
-			self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
-			time.sleep(1)
-			del self.t2
-			self.t2 = None
-			if self.settings.do_hv_control: self.hv_control.UpdateHVFile(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-		self.total_events_sig = self.CalculateEventsWritten(self.signal_ch.ch)
-		self.total_events_trig = self.CalculateEventsWritten(self.trigger_ch.ch)
-		self.total_events_veto = self.CalculateEventsWritten(self.veto_ch.ch)
-		if self.total_events_sig == self.total_events_trig and self.total_events_sig == self.total_events_veto:
-			self.total_events = self.total_events_sig
-		else:
-			print 'Written events are of different sizes (signal: {s}, trigger: {t}, veto: {v}). Missmatch!'.format(s=self.total_events_sig, t=self.total_events_trig, v=self.total_events_veto)
-			exit()
-		del self.total_events_sig, self.total_events_trig, self.total_events_veto
-		self.total_events_sig, self.total_events_trig, self.total_events_veto = None, None, None
-
-	def CloseSubprocess(self, pname='wave_dump', stdin=False, stdout=False):
-		p = self.p if pname == 'wave_dump' else self.pconv if pname == 'converter' else None
-		if not p:
-			print 'Something failed! Exiting!'
-			exit()
-		pid = p.pid
-		if stdin:
-			p.stdin.close()
-		if stdout:
-			p.stdout.close()
-		if p.wait() is None:
-			print 'Could not terminate subprocess... forcing termination'
-			p.kill()
-			if p.wait() is None:
-				print 'Could not kill subprocess... quitting'
-				exit()
-		try:
-			os.kill(pid, 0)
-		except OSError:
-			pass
-		else:
-			print 'The subprocess is still running. Killing it with os.kill'
-			os.kill(pid, 15)
-			try:
-				os.kill(pid, 0)
-			except OSError:
-				pass
+	def AnalysisWaves(self, doCuts0=True):
+		self.OpenROOTFile('UPDATE')
+		self.LoadTree()
+		if doCuts0: self.CreateCut0()
+		if not self.hasBranch['peakPosition']:
+			self.LoadVectorsFromTree()
+			self.ExplicitVectorsFromDictionary()
+			if self.doPeakPos:
+				self.FindRealPeakPosition()
 			else:
-				print 'The process does not die... quitting program'
-				exit()
-		del p, pid
+				self.peak_positions = np.full(self.peakTime)
+			self.FillTreePeakPositions()
+			self.CloseROOTFile()
+			self.OpenROOTFile('UPDATE')
+			self.Reset_Braches_Lists_And_Dictionaries()
+			self.LoadTree()
+		self.AddPeakPositionCut()
+		if not np.array([self.hasBranch[key0] for key0 in self.analysisScalarsBranches]).all():
+			self.LoadVectorsFromTree()
+			self.ExplicitVectorsFromDictionary()
+			self.FindPedestalPosition()
+			self.FindSignalPositions(self.peakBackward, self.peakForward)
+			self.CalculatePedestalsAndSignals()
+			self.FillPedestalsAndSignals()
+			self.CloseROOTFile()
+		self.OpenROOTFile('READ')
+		self.Reset_Braches_Lists_And_Dictionaries()
+		self.LoadTree()
 
-		if pname == 'wave_dump':
-			del self.p
-			self.p = None
-		elif pname == 'converter':
-			del self.pconv
-			self.pconv = None
+	def OpenROOTFile(self, mode='READ'):
+		if not os.path.isdir(self.outDir):
+			print 'Directory:', self.outDir, '; does not exist. Exiting!'
+			exit()
+		if not os.path.isfile('{o}/{f}'.format(o=self.outDir, f=self.inputFile)):
+			print 'File:', self.inputFile, '; does not exist in:', self.outDir, '. Exiting!'
+			exit()
+		if self.fileRaw:
+			if self.fileRaw.IsOpen():
+				if self.fileRaw.GetOption().lower() != mode.lower():
+					if self.fileRaw.ReOpen(mode) == -1:
+						print 'Could not reopen file:', self.fileRaw, 'in mode:', mode, '. Exiting!'
+						exit()
+				return
+			else:
+				self.fileRaw = None
+		self.fileRaw = ro.TFile('{o}/{f}'.format(o=self.outDir, f=self.inputFile), mode)
 
-	def ConcatenateBinaries(self):
-		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = 0, 0, 0
-		if os.path.isfile('wave{s}.dat'.format(s=self.signal_ch.ch)) and os.path.isfile('wave{t}.dat'.format(t=self.trigger_ch.ch)) and os.path.isfile('wave{a}.dat'.format(a=self.veto_ch.ch)):
-			self.session_measured_data_sig = int(os.path.getsize('wave{s}.dat'.format(s=self.signal_ch.ch)))
-			self.session_measured_data_trig = int(os.path.getsize('wave{t}.dat'.format(t=self.trigger_ch.ch)))
-			self.session_measured_data_veto = int(os.path.getsize('wave{a}.dat'.format(a=self.veto_ch.ch)))
+	def LoadTree(self):
+		if not self.fileRaw.IsOpen():
+			print 'First OpenROOTFile before Loading Tree'
+			return
+		self.treeRaw = self.fileRaw.Get(self.treeName)
+		self.hasBranch = {branch: self.TreeHasBranch(branch) for branch in self.branchesAll}
+		self.UpdateBranchesLists()
+		self.IsTimeHVaTimeStamp()
 
-		self.total_merged_data_sig = int(os.path.getsize('raw_wave{s}.dat'.format(s=self.signal_ch.ch)))
-		self.total_merged_data_trig = int(os.path.getsize('raw_wave{t}.dat'.format(t=self.trigger_ch.ch)))
-		self.total_merged_data_veto = int(os.path.getsize('raw_wave{a}.dat'.format(a=self.veto_ch.ch)))
-		self.doMerge = (self.session_measured_data_sig + self.sig_written * self.settings.struct_len > self.total_merged_data_sig) and (self.session_measured_data_trig + self.trg_written * self.settings.struct_len > self.total_merged_data_trig) and (self.session_measured_data_veto + self.veto_written * self.settings.struct_len > self.total_merged_data_veto)
-		if self.doMerge:
-			# self.OpenFiles(mode='ab')
-			self.min_measured_data = min(self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto)
-			data_to_write_sig = self.min_measured_data - self.total_merged_data_sig + self.sig_written * self.settings.struct_len
-			data_to_write_trg = self.min_measured_data - self.total_merged_data_trig + self.trg_written * self.settings.struct_len
-			data_to_write_aco = self.min_measured_data - self.total_merged_data_veto + self.veto_written * self.settings.struct_len
-			self.min_data_to_write = min(data_to_write_sig, data_to_write_trg, data_to_write_aco)
-			del data_to_write_sig, data_to_write_trg, data_to_write_aco
-			self.events_to_write = int(np.floor(self.min_data_to_write / float(self.settings.struct_len)))
-			self.read_size = self.events_to_write * self.settings.struct_len
-
-			with open('wave{s}.dat'.format(s=self.signal_ch.ch), 'rb') as self.fins:
-				self.fins.seek(self.written_events_sig * self.settings.struct_len, 0)
-				self.datas = self.fins.read(self.read_size)
-			del self.fins
-			self.fins = None
-			with open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), 'ab') as self.fs0:
-				self.fs0.write(self.datas)
-				self.fs0.flush()
-			del self.fs0, self.datas
-			self.fs0, self.datas = None, None
-
-			with open('wave{t}.dat'.format(t=self.trigger_ch.ch), 'rb') as self.fint:
-				self.fint.seek(self.written_events_trig * self.settings.struct_len, 0)
-				self.datat = self.fint.read(self.read_size)
-			del self.fint
-			self.fint = None
-			with open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), 'ab') as self.ft0:
-				self.ft0.write(self.datat)
-				self.ft0.flush()
-			del self.ft0, self.datat
-			self.ft0, self.datat = None, None
-
-			with open('wave{a}.dat'.format(a=self.veto_ch.ch), 'rb') as self.finv:
-				self.finv.seek(self.written_events_veto * self.settings.struct_len, 0)
-				self.datav = self.finv.read(self.read_size)
-			del self.finv
-			self.finv = None
-			with open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), 'ab') as self.fv0:
-				self.fv0.write(self.datav)
-				self.fv0.flush()
-			del self.fv0, self.datav
-			self.fv0, self.datav = None, None
-
-			self.written_events_sig += int(self.events_to_write)
-			self.written_events_trig += int(self.events_to_write)
-			self.written_events_veto += int(self.events_to_write)
-
-			del self.events_to_write, self.read_size
-			self.events_to_write, self.read_size = None, None
-
-		self.doMerge = False
-
-	def CalculateEventsWritten(self, ch):
-		return int(round(float(os.path.getsize('raw_wave{c}.dat'.format(c=ch))) / float(self.settings.struct_len)))
-
-	def ReadBaseLines(self):
-		# Read ADCs from files for trigger and veto scintillators
-		with open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), 'rb') as self.ft0:
-			self.ft0.seek(0)
-			self.datat = self.ft0.read(self.settings.struct_len)
-			t = struct.Struct(self.settings.struct_fmt).unpack_from(self.datat)
-			triggADCs = np.array(t, 'H')
-			mean_t = triggADCs.mean()
-			std_t = triggADCs.std()
-
-		with open('raw_wave{ac}.dat'.format(ac=self.veto_ch.ch), 'rb') as self.fv0:
-			self.fv0.seek(0)
-			self.datav = self.fv0.read(self.settings.struct_len)
-			ac = struct.Struct(self.settings.struct_fmt).unpack_from(self.datav)
-			acADCs = np.array(ac, 'H')
-			mean_ac = acADCs.mean()
-			std_ac = acADCs.std()
-
-		# clear possible ADCs with non-baseline signals
-		for i in xrange(10):
-			condition_t = (np.abs(triggADCs - mean_t) < 3 * std_t)
-			mean_t = np.extract(condition_t, triggADCs).mean()
-			std_t = np.extract(condition_t, triggADCs).std()
-			condition_ac = (np.abs(acADCs - mean_ac) < 3 * std_ac)
-			mean_ac = np.extract(condition_ac, acADCs).mean()
-			std_ac = np.extract(condition_ac, acADCs).std()
-
-		# set channels such that the baselines are near the maximum ADC's leaving space for the scintillator signals. Adjust threshold values
-		self.trigger_ch.Correct_Base_Line(mean_adc=mean_t, sigma_adc=std_t, settings=self.settings)
-		self.trigger_ch.Correct_Threshold(sigma=std_t)
-		self.settings.trig_base_line = np.multiply(self.trigger_ch.base_line_u_adcs, self.settings.sigRes, dtype='f8')
-		self.settings.trig_thr_counts = self.trigger_ch.thr_counts
-		self.veto_ch.Correct_Base_Line(mean_adc=mean_ac, sigma_adc=std_ac, settings=self.settings)
-		self.veto_ch.Correct_Threshold(sigma=std_ac)
-		self.settings.ac_base_line = np.multiply(self.veto_ch.base_line_u_adcs, self.settings.sigRes, dtype='f8')
-		self.settings.ac_thr_counts = self.veto_ch.thr_counts
-
-		del self.ft0, self.datat, t, triggADCs, mean_t, std_t
-		del self.fv0, self.datav, ac, acADCs, mean_ac, std_ac
-		self.ft0, self.datat= None, None
-		self.fv0, self.datav = None, None
-
-	# @profile(precision=12)
-	def GetData(self):
-		self.t0 = time.time()
-		self.CreateEmptyFiles()
-		self.CloseFiles()
-		self.total_events = 0
-		print 'Getting {n} events...'.format(n=self.settings.num_events)
-		if self.settings.simultaneous_conversion:
-			self.CreateRootFile(files_moved=False)
+	def TreeHasBranch(self, branch):
+		if self.treeRaw.GetLeaf(branch):
+			return True
 		else:
-			self.settings.CreateProgressBar(self.settings.num_events)
-			self.settings.bar.start()
-		self.settings.SetupDigitiser(doBaseLines=False, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch, events_written=self.total_events)
-		while self.total_events < self.settings.num_events:
-			self.sig_written = self.CalculateEventsWritten(self.signal_ch.ch)
-			self.trg_written = self.CalculateEventsWritten(self.trigger_ch.ch)
-			self.veto_written = self.CalculateEventsWritten(self.veto_ch.ch)
-			self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD.txt'.format(d=self.settings.outdir)], bufsize=-1, stdin=subp.PIPE, stdout=subp.PIPE, close_fds=True)
-			self.GetWaveforms(self.settings.num_events, stdin=True, stdout=True)
-		self.CloseFiles()
-		if not self.settings.simultaneous_conversion:
-			print 'Time getting {n} events: {t} seconds'.format(n=self.total_events, t=time.time() - self.t0)
-			self.settings.bar.finish()
-		else:
-			while self.pconv.poll() is None:
-				continue
-			self.CloseSubprocess('converter', stdin=False, stdout=False)
-		return self.total_events
+			return False
 
-	def CreateRootFile(self, files_moved=False):
-		settings_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}/{f}.settings'.format(f=self.settings.filename))
-		data_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}'.format(f=self.settings.filename)) if files_moved else os.getcwd()
-		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path, data_bin_path], close_fds=True)
-		del settings_bin_path
+	def UpdateBranchesLists(self):
+		for branch in self.branches1DTotal[:]:
+			if not self.hasBranch[branch]:
+				self.branches1DTotal.remove(branch)
+		for branch in self.branches1DLoad[:]:
+			if not self.hasBranch[branch]:
+				self.branches1DLoad.remove(branch)
 
-	def CloseHVClient(self):
-		if self.settings.do_hv_control:
-			self.hv_control.CloseClient()
+		for branch in self.branchesWavesTotal[:]:
+			if not self.hasBranch[branch]:
+				self.branchesWavesTotal.remove(branch)
+		for branch in self.branchesWavesLoad[:]:
+			if not self.hasBranch[branch]:
+				self.branchesWavesLoad.remove(branch)
 
-	def SavePickles(self):
-		# save objects of settings, signal_ch, trigger_ch and veto_ch
-		with open('{d}/Runs/{f}/{f}.settings'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fs:
-			pickle.dump(self.settings, fs, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}/{f}.signal_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fsig:
-			pickle.dump(self.signal_ch, fsig, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}/{f}.trigger_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as ft:
-			pickle.dump(self.trigger_ch, ft, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}/{f}.veto'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fv:
-			pickle.dump(self.veto_ch, fv, pickle.HIGHEST_PROTOCOL)
+	def IsTimeHVaTimeStamp(self):
+		if self.hasBranch['timeHV']:
+			if self.treeRaw.GetLeaf('timeHV').GetTypeName() != 'TDatime':
+				# self.branches1DTotal = ['timeHV.AsDouble()' if branch == 'timeHV' else branch for branch in self.branches1DTotal]
+				self.branches1DLoad = ['timeHV.AsDouble()' if branch == 'timeHV' else branch for branch in self.branches1DLoad]
+				del self.branches1DType['timeHV']
+				self.branches1DType['timeHV.AsDouble()'] = 'float64'
+			# self.branches1DType = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'voltageHV': 'float32', 'currentHV': 'float32', 'timeHV.AsDouble()': 'float64', 'peakPosition': 'float64'}
+			else:
+				# self.branches1DTotal = ['timeHV.Convert()' if branch == 'timeHV' else branch for branch in self.branches1DTotal]
+				self.branches1DLoad = ['timeHV.Convert()' if branch == 'timeHV' else branch for branch in self.branches1DLoad]
+				del self.branches1DType['timeHV']
+				self.branches1DType['timeHV.Convert()'] = 'uint32'
+			# self.branches1DType = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'voltageHV': 'float32', 'currentHV': 'float32', 'timeHV.Convert()': 'uint32', 'peakPosition': 'float64'}
+
+	def CreateCut0(self):
+		if self.cut0.GetTitle() != '':
+			self.cut0.SetTitle('')
+		if self.doBadPedestalCut and 'badPedestal' in self.branches1DTotal:
+			self.cut0 += ro.TCut('badPedCut', 'badPedestal==0')
+		if self.doVetoedEventCut and 'vetoedEvent' in self.branches1DTotal:
+			self.cut0 += ro.TCut('vetoedEventCut', 'vetoedEvent==0')
+		if self.badShapeCut == 1 and 'badShape' in self.branches1DTotal:
+			self.cut0 += ro.TCut('badShapeCut', 'badShape!=1')
+		elif self.badShapeCut == 2 and 'badShape' in self.branches1DTotal:
+			self.cut0 += ro.TCut('badShapeCut', 'badShape==0')
+		if 'currentHV' in self.branches1DTotal:
+			self.cut0 += ro.TCut('currentCut', 'abs(currentHV)<{cc}'.format(cc=self.currentCut))
+
+	def LoadVectorsFromTree(self):
+		self.max_events = self.treeRaw.GetEntries() if self.max_events == 0 else self.max_events
+		self.ptsWave = self.treeRaw.GetLeaf('time').GetLen()
+
+		leng = self.treeRaw.Draw(':'.join(self.branches1DLoad), self.cut0, 'goff para', self.max_events)
+		if leng == -1:
+			print 'Error, could not load the branches: {b}. Try again :('.format(b=':'.join(self.branches1DLoad))
+			return
+		while leng > self.treeRaw.GetEstimate():
+			self.treeRaw.SetEstimate(leng)
+			leng = self.treeRaw.Draw(':'.join(self.branches1DLoad), self.cut0, 'goff para', self.max_events)
+		self.events = leng
+		for pos, branch in enumerate(self.branches1DLoad):
+			if self.verb: print 'Vectorising branch:', branch, '...', ; sys.stdout.flush()
+			temp = self.treeRaw.GetVal(pos)
+			self.dicBraVect1D[branch] = np.array([temp[ev] for ev in xrange(self.events)], dtype=np.dtype(self.branches1DType[branch]))
+			if self.verb: print 'Done'
+
+		leng = self.treeRaw.Draw(':'.join(self.branchesWavesLoad), self.cut0, 'goff para', self.max_events)
+		if leng == -1:
+			print 'Error, could not load the branches {b}. Try again :('.format(b=':'.join(self.branchesWavesLoad))
+			return
+		while leng > self.treeRaw.GetEstimate():
+			self.treeRaw.SetEstimate(leng)
+			leng = self.treeRaw.Draw(':'.join(self.branchesWavesLoad), self.cut0, 'goff para', self.max_events)
+		for pos, branch in enumerate(self.branchesWavesLoad):
+			if self.verb: print 'Vectorising branch:', branch, '...', ; sys.stdout.flush()
+			temp = self.treeRaw.GetVal(pos)
+			self.dicBraVectWaves[branch] = np.array([[temp[ev * self.ptsWave + pt] for pt in xrange(self.ptsWave)] for ev in xrange(self.events)], dtype=np.dtype(self.branchesWavesType[branch]))
+			if self.verb: print 'Done'
+
+	def ExplicitVectorsFromDictionary(self):
+		if self.hasBranch['voltageSignal']:
+			self.signalWaveVect = self.dicBraVectWaves['voltageSignal']
+		# if self.hasBranch['voltageTrigger']:
+		# 	self.triggerWaveVect = self.dicBraVectWaves['voltageTrigger']
+		# if self.hasBranch['voltageVeto']:
+		# 	self.vetoWaveVect = self.dicBraVectWaves['voltageVeto']
+		if self.hasBranch['time']:
+			self.timeVect = self.dicBraVectWaves['time']
+		if self.hasBranch['event']:
+			self.eventVect = self.dicBraVect1D['event']
+		# if self.hasBranch['vetoedEvent']:
+		# 	self.vetoedEvent = self.dicBraVectWaves['vetoedEvent']
+		# if self.hasBranch['badShape']:
+		# 	self.badShape = self.dicBraVectWaves['badShape']
+		# if self.hasBranch['badPedestal']:
+		# 	self.badPedestal = self.dicBraVectWaves['badPedestal']
+		if self.hasBranch['voltageHV']:
+			self.voltageHV = self.dicBraVect1D['voltageHV']
+		if self.hasBranch['currentHV']:
+			self.currentHV = self.dicBraVect1D['currentHV']
+		if self.hasBranch['timeHV']:
+			key = 'timeHV.Convert()' if 'timeHV.Convert()' in self.branches1DLoad else 'timeHV.AsDouble()'
+			self.timeHV = self.dicBraVect1D[key]
+		if self.hasBranch['peakPosition']:
+			self.peak_positions = self.dicBraVect1D['peakPosition']
+
+	def FindRealPeakPosition(self):
+		print 'Getting real peak positions...', ;sys.stdout.flush()
+		mpos = self.signalWaveVect.argmin(axis=1) if self.bias >= 0 else self.signalWaveVect.argmax(axis=1)
+		time_mpos = self.timeVect[:, mpos].diagonal()
+		xmin, xmax = time_mpos - self.pedestalIntegrationTime / 2.0, time_mpos + self.pedestalIntegrationTime / 2.0
+		fit = [ro.TGraph(len(timei), timei, self.signalWaveVect[it]).Fit('pol2', 'QMN0FS', '', xmin[it], xmax[it]) for it, timei in enumerate(self.timeVect)]
+		b, a = np.array([fiti.Parameter(1) for fiti in fit]), np.array([fiti.Parameter(2) for fiti in fit])
+		self.peak_positions = np.divide(-b, 2 * a)
+		print 'Done'
+
+	def FillTreePeakPositions(self):
+		print 'Filling tree with peak positions...'
+		peakPosBra = self.treeRaw.Branch('peakPosition', self.peak_position, 'peakPosition/F')
+		self.utils.CreateProgressBar(self.treeRaw.GetEntries())
+		self.utils.bar.start()
+		for ev in xrange(self.treeRaw.GetEntries()):
+			self.treeRaw.GetEntry(ev)
+			if ev in self.eventVect:
+				try:
+					self.peak_position.itemset(self.peak_positions[np.argwhere(ev == self.eventVect).flatten()])
+				except ValueError:
+					print 'could not fill event', ev, 'it should have a peak position of:', self.peak_positions[np.argwhere(ev == self.eventVect).flatten()]
+					exit()
+			else:
+				self.peak_position.itemset(0)
+			peakPosBra.Fill()
+			self.utils.bar.update(ev + 1)
+		self.treeRaw.Write()
+		self.utils.bar.finish()
+
+	def CloseROOTFile(self):
+		self.treeRaw.Delete()
+		self.fileRaw.Close()
+
+	def Reset_Braches_Lists_And_Dictionaries(self):
+		self.branches1DTotal = ['event', 'vetoedEvent', 'badShape', 'badPedestal', 'voltageHV', 'currentHV', 'timeHV', 'peakPosition', 'pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
+		self.branches1DType = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'voltageHV': 'float32', 'currentHV': 'float32', 'timeHV': 'float64', 'peakPosition': 'float32', 'pedestal': 'float32', 'pedestalSigma': 'float32', 'signalAndPedestal': 'float32', 'signalAndPedestalSigma': 'float32', 'signal': 'float32'}
+		self.branchesWavesTotal = ['time', 'voltageSignal', 'voltageTrigger', 'voltageVeto']
+		self.branchesWavesType = {'time': 'float64', 'voltageSignal': 'float64', 'voltageTrigger': 'float64', 'voltageVeto': 'float64'}
+		self.branchesAll = self.branches1DTotal + self.branchesWavesTotal
+		self.branches1DLoad = ['event', 'voltageHV', 'currentHV', 'timeHV', 'peakPosition']
+		self.branchesWavesLoad = ['time', 'voltageSignal']
+		self.analysisScalarsBranches = ['pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
+		self.dicBraVect1D = OrderedDict()
+		self.dicBraVectWaves = OrderedDict()
+		self.hasBranch = {}
+
+	def AddPeakPositionCut(self):
+		self.cut0 += ro.TCut('peakPosCut', 'abs(peakPosition-{pp})<={ppc}'.format(pp=self.peakTime, ppc=self.peakPosCut))
+
+	def FindPedestalPosition(self):
+		print 'Calculating position of pedestals...', ;sys.stdout.flush()
+		self.pedestalTimeIndices = [np.argwhere(np.bitwise_and(self.pedestalTEndPos - self.pedestalIntegrationTime <= timeVectEvi, timeVectEvi <= self.pedestalTEndPos)).flatten() for timeVectEvi in self.timeVect]
+		print 'Done'
+
+	def FindSignalPositions(self, backward, forward):
+		print 'Calculating position of signals...', ;sys.stdout.flush()
+		self.signalTimeIndices = [np.argwhere(abs(timeVectEvi - self.peak_positions[it] + (forward - backward)/2.0) <= (forward + backward)/2.0).flatten() for it, timeVectEvi in enumerate(self.timeVect)]
+		print 'Done'
+
+	def CalculatePedestalsAndSignals(self):
+		print 'Calculating pedestals and signals...', ;sys.stdout.flush()
+		self.pedVect = np.array([self.signalWaveVect[ev, pedTimeIndxs].mean() if pedTimeIndxs.size > 0 else -10 for ev, pedTimeIndxs in enumerate(self.pedestalTimeIndices)])
+		self.pedSigmaVect = np.array([self.signalWaveVect[ev, pedTimeIndxs].std() if pedTimeIndxs.size > 1 else -10 for ev, pedTimeIndxs in enumerate(self.pedestalTimeIndices)])
+		self.sigAndPedVect = np.array([self.signalWaveVect[ev, sigTimeIndxs].mean() if sigTimeIndxs.size > 0 else -10 for ev, sigTimeIndxs in enumerate(self.signalTimeIndices)])
+		self.sigAndPedSigmaVect = np.array([self.signalWaveVect[ev, sigTimeIndxs].std() if sigTimeIndxs.size > 1 else -10 for ev, sigTimeIndxs in enumerate(self.signalTimeIndices)])
+		self.sigVect = np.subtract(self.sigAndPedVect, self.pedVect)
+		print 'Done'
+
+	def FillPedestalsAndSignals(self):
+		print 'Filling tree with peak positions...'
+		pedBra = self.treeRaw.Branch('pedestal', self.ped, 'pedestal/F')
+		pedSigmaBra = self.treeRaw.Branch('pedestalSigma', self.pedSigma, 'pedestalSigma/F')
+		pedSignalBra = self.treeRaw.Branch('signalAndPedestal', self.sigAndPed, 'signalAndPedestal/F')
+		pedSignalSigmaBra = self.treeRaw.Branch('signalAndPedestalSigma', self.sigAndPed, 'signalAndPedestalSigma/F')
+		sigBra = self.treeRaw.Branch('signal', self.sig, 'signal/F')
+		self.utils.CreateProgressBar(self.max_events)
+		self.utils.bar.start()
+		for ev in xrange(self.max_events):
+			self.treeRaw.GetEntry(ev)
+			if ev in self.eventVect:
+				try:
+					argum = np.argwhere(ev == self.eventVect).flatten()
+					self.ped.itemset(self.pedVect[argum])
+					self.pedSigma.itemset(self.pedSigmaVect[argum])
+					self.sigAndPed.itemset(self.sigAndPedVect[argum])
+					self.sigAndPedSigma.itemset(self.sigAndPedSigmaVect[argum])
+					self.sig.itemset(self.sigVect[argum])
+				except ValueError:
+					print 'Could not fill event', ev
+					exit()
+			else:
+				self.ped.itemset(0)
+				self.pedSigma.itemset(0)
+				self.sigAndPed.itemset(0)
+				self.sigAndPedSigma.itemset(0)
+				self.sig.itemset(0)
+			pedBra.Fill()
+			pedSigmaBra.Fill()
+			pedSignalBra.Fill()
+			pedSignalSigmaBra.Fill()
+			sigBra.Fill()
+			self.utils.bar.update(ev + 1)
+		self.treeRaw.Write()
+		self.utils.bar.finish()
+
+	def ExtractMeanOfWaveforms(self):
+		self.signalWaveMeanVect = self.signalWaveVect.mean(axis=0)
+		self.signalWaveSigmaVect = self.signalWaveVect.std(axis=0)
+
+	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal','voltageHV','currentHV','timeHV']):
+		print 'Restoring tree with the following branches:', keepBranches, '...'
+		raw_input('Press a key and Enter to continue: ')
+		self.OpenROOTFile('READ')
+		self.LoadTree()
+		self.treeRaw.SetBranchStatus('*', 0)
+		for branch in keepBranches:
+			if self.TreeHasBranch(branch):
+				self.treeRaw.SetBranchStatus(branch, 1)
+		newFile = ro.TFile('{o}/temp.root'.format(o=self.outDir), 'recreate')
+		newTree = self.treeRaw.CloneTree()
+		newTree.Print()
+		newFile.Write()
+		del self.fileRaw
+		del newFile
+		self.fileRaw = None
+		checkFile = ro.TFile('{o}/temp.root'.format(o=self.outDir), 'READ')
+		checkTree = checkFile.Get(self.treeName)
+		doMoveFile = True
+		if checkTree:
+			for branch in keepBranches:
+				if not checkTree.GetLeaf(branch):
+					doMoveFile = False
+					break
+			if doMoveFile:
+				print 'The file was cloned successfully :)'
+				checkFile.Close()
+				del checkFile
+				shutil.move('{o}/temp.root'.format(o=self.outDir), '{o}/{f}'.format(o=self.outDir, f=self.inputFile))
+				return
+		print 'The file was not cloned successfully :S. Check original tree and "temp.root"'
+
 
 	def PrintPlotLimits(self, ti=-5.12e-7, tf=4.606e-6, vmin=-0.7, vmax=0.05):
 		print np.double([(tf-ti)/float(self.settings.time_res) +1, ti-self.settings.time_res/2.0,
-		                      tf+self.settings.time_res/2.0, (vmax-vmin)/self.settings.sigRes, vmin, vmax])
+		                 tf+self.settings.time_res/2.0, (vmax-vmin)/self.settings.sigRes, vmin, vmax])
 
 def main():
 	parser = OptionParser()
 	parser.add_option('-d', '--dir', dest='dir', default='.', type='string', help='Directory containing the run files')
+	parser.add_option('-c', '--configFile', dest='config', default='CAENAnalysisConfig.cfg', type='string', help='Path to file containing Analysis configuration file')
+	parser.add_option('-i', '--inputFile', dest='infile', default='', type='string', help='Path to root file to be analysed')
+	parser.add_option('-b', '--bias', dest='bias', default=0, type='float', help='Bias voltage used')
 	parser.add_option('-v', '--verbose', dest='verb', default=False, help='Toggles verbose', action='store_true')
 	# parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic conversion and analysis afterwards', action='store_true')
 
 	(options, args) = parser.parse_args()
 	directory = str(options.dir)
+	config = str(options.config)
+	infile = str(options.infile)
+	bias = float(options.bias)
 	verb = bool(options.verb)
-	ana = AnalysisCaenCCD(directory, verb)
+
+	ana = AnalysisCaenCCD(directory, config, infile, bias, verb)
 
 	ana.LoadTree()
 	ana.LoadPickles()

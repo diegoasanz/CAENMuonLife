@@ -77,6 +77,12 @@ def PlotHisto2DLimits(xmin=-0.48e-6, xmax=4.68e-6, ymin=-0.5, ymax=0.1, xres=2e-
 	ybins = int(round((ymax - ymin)/yres))
 	print '({nx},{minx},{maxx},{ny},{miny},{maxy})'.format(nx=xbins, minx=xmin, maxx=xmax, ny=ybins, miny=ymin,maxy=ymax)
 
+def ExitMessage(msg, code=os.EX_SOFTWARE):
+	print '\n##########'
+	print msg
+	print '##########'
+	sys.exit(code)
+
 if __name__ == '__main__':
 	print 'blaaaa'
 
