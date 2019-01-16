@@ -76,7 +76,7 @@ class HV_Control:
 		conf_file.write('testbeam_name: {f}\n'.format(f=self.filename))
 
 		conf_file.write('\n[Names]\n')
-		conf_file.write('CH{s}: {d}\n'.format(s=self.supply_number, d=self.dut))
+		conf_file.write('HV{s}: {d}\n'.format(s=self.supply_number, d=self.dut))
 
 		if self.hv_supply == 'ISEG-NHS-6220x' or self.hv_supply == 'ISEG-NHS-6220n':
 			conf_file.write('\n[HV{s}]\n'.format(s=self.supply_number))
