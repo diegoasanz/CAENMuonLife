@@ -96,8 +96,8 @@ class Cuts_Caen:
 					if parser.has_option('RUN', 'post_trigger_percent'):
 						self.post_trig_percent = parser.getint('RUN', 'post_trigger_percent')
 				if parser.has_section('OUTPUT'):
-					if parser.has_option('OUTPUT', 'dir') and self.outdir == 'None':
-						self.outdir = parser.get('OUTPUT', 'dir')
+					if parser.has_option('OUTPUT', 'inDir') and self.outdir == 'None':
+						self.outdir = parser.get('OUTPUT', 'inDir')
 					if parser.has_option('OUTPUT', 'prefix'):
 						self.prefix = parser.get('OUTPUT', 'prefix')
 					if parser.has_option('OUTPUT', 'suffix'):

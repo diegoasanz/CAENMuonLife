@@ -83,6 +83,36 @@ def ExitMessage(msg, code=os.EX_SOFTWARE):
 	print '##########'
 	sys.exit(code)
 
+def SetDefault2DStats(histo):
+	if histo.FindObject('stats'):
+		histo.FindObject('stats').SetOptStat(11)
+		histo.FindObject('stats').SetX1NDC(0.7)
+		histo.FindObject('stats').SetX2NDC(0.9)
+		histo.FindObject('stats').SetY1NDC(0.9)
+		histo.FindObject('stats').SetY2NDC(0.975)
+		ro.gPad.Update()
+	if histo.FindObject('palette'):
+		histo.FindObject('palette').SetX1NDC(0.87)
+		histo.FindObject('palette').SetX2NDC(0.92)
+		ro.gPad.Update()
+
+def SetDefault1DStats(histo):
+	if histo.FindObject('stats'):
+		histo.FindObject('stats').SetOptStat(112211)
+		histo.FindObject('stats').SetX1NDC(0.6)
+		histo.FindObject('stats').SetX2NDC(0.9)
+		histo.FindObject('stats').SetY1NDC(0.6)
+		histo.FindObject('stats').SetY2NDC(0.9)
+		ro.gPad.Update()
+
+def SetDefaultFitStats(histo, fit, color=ro.kRed):
+	fit.SetLineColor(color)
+	histo.FindObject('stats').SetOptFit(1)
+	histo.FindObject('stats').SetX1NDC(0.6)
+	histo.FindObject('stats').SetX2NDC(0.9)
+	histo.FindObject('stats').SetY1NDC(0.6)
+	histo.FindObject('stats').SetY2NDC(0.9)
+
 if __name__ == '__main__':
 	print 'blaaaa'
 
