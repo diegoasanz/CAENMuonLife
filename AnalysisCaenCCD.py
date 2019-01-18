@@ -549,6 +549,55 @@ class AnalysisCaenCCD:
 		self.signalWaveMeanVect = self.signalWaveVect.mean(axis=0)
 		self.signalWaveSigmaVect = self.signalWaveVect.std(axis=0)
 
+	def DrawHisto(self, name, xmin, xmax, deltax, var, varname, option='e'):
+		ro.TFormula.SetMaxima(100000)
+		if self.histo[name]:
+			self.histo[name].Delete()
+			del self.histo[name]
+		self.histo[name] = ro.TH1F('h_' + name, 'h_' + name, int(np.floor((xmax - xmin) / deltax + 0.5)), xmin, xmax)
+		self.histo[name].GetXaxis().SetTitle(varname)
+		self.histo[name].GetYaxis().SetTitle('entries')
+		if 'goff' not in option:
+			if self.canvas[name]:
+				self.canvas[name].Close()
+				del self.canvas[name]
+			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
+			self.canvas[name].cd()
+		self.analysisTree.Draw('{v}>>h_{n}'.format(v=var, n=name), self.cut0, option)
+		if 'goff' not in option:
+			self.canvas[name].SetGridx()
+			self.canvas[name].SetGridy()
+			self.canvas[name].SetTicky()
+			ro.gPad.Update()
+			SetDefault1DStats(self.histo[name])
+		ro.TFormula.SetMaxima(1000)
+
+	def DrawHisto2D(self, name, varx, xmin, xmax, deltax, xname, vary, ymin, ymax, deltay, yname, cuts='', option='colz'):
+		ro.TFormula.SetMaxima(100000)
+		if self.histo[name]:
+			self.histo[name].Delete()
+			del self.histo[name]
+		self.histo[name] = ro.TH2F('h_' + name, 'h_' + name, int(np.floor((xmax - xmin) / deltax + 0.5) + 2), xmin - deltax, xmax + deltax, int(np.floor((ymax - ymin) / deltay + 0.5) + 2), ymin - deltay, ymax + deltay)
+		self.histo[name].GetXaxis().SetTitle(xname)
+		self.histo[name].GetYaxis().SetTitle(yname)
+		self.histo[name].GetZaxis().SetTitle('entries')
+		if 'goff' not in option:
+			if self.canvas[name]:
+				self.canvas[name].Close()
+				del self.canvas[name]
+			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
+			self.canvas[name].cd()
+		cuts0 = self.cut0.GetTitle() if cuts == '' else cuts
+		self.analysisTree.Draw('{y}:{x}>>h_{n}'.format(y=vary, x=varx, n=name), cuts0, option)
+		if 'goff' not in option:
+			self.canvas[name].SetGridx()
+			self.canvas[name].SetGridy()
+			self.canvas[name].SetTickx()
+			self.canvas[name].SetTicky()
+			ro.gPad.Update()
+			SetDefault2DStats(self.histo[name])
+		ro.TFormula.SetMaxima(1000)
+
 	def PlotPeakPositionDistributions(self, name='peakPosDist', low_t=1e-9, up_t=5001e-9, nbins=500):
 		self.DrawHisto(name, low_t, up_t, (up_t - low_t) / nbins, 'peakPosition', 'Peak Position [s]', 'e')
 		self.histo[name].GetXaxis().SetRangeUser(self.histo[name].GetMean() - 5 * self.histo[name].GetRMS(), self.histo[name].GetMean() + 5 * self.histo[name].GetRMS())
@@ -561,21 +610,19 @@ class AnalysisCaenCCD:
 		self.peakTime = fit.Parameter(1)
 		self.AddPeakPositionCut()
 
-	def DrawHisto(self, name, xmin, xmax, deltax, var, varname, option='e'):
-		ro.TFormula.SetMaxima(100000)
-		self.histo[name] = ro.TH1F('h_' + name, 'h_' + name, int(np.floor((xmax - xmin) / deltax + 0.5)), xmin, xmax)
-		self.histo[name].GetXaxis().SetTitle(varname)
-		self.histo[name].GetYaxis().SetTitle('entries')
-		if 'goff' not in option:
-			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
-			self.canvas[name].cd()
-		self.analysisTree.Draw('{v}>>h_{n}'.format(v=var, n=name), self.cut0, option)
-		if 'goff' not in option:
-			self.canvas[name].SetGridx()
-			self.canvas[name].SetGridy()
-			ro.gPad.Update()
-			SetDefault1DStats(self.histo[name])
-		ro.TFormula.SetMaxima(1000)
+	def PlotSignal
+
+	def PlotWaveforms(self, name='SignalWaveform', type='signal', cuts='', option='colz'):
+		var = 'voltageSignal' if 'signal' in type.lower() else 'voltageTrigger' if 'trig' in type.lower() else 'voltageVeto' if 'veto' in type.lower() else ''
+		if var == '':
+			print 'type should be "signal", "trigger" or "veto"'
+			return
+		# cuts0 = self.cut0.GetTitle() if cuts == '' else cuts
+		vname = ('signal' if var == 'voltageSignal' else 'trigger' if var == 'voltageTrigger' else 'veto' if var == 'voltageVeto' else '') + ' [V]'
+		tmin, tmax, deltat = self.analysisTree.GetMinimum('time'), self.analysisTree.GetMaximum('time'), self.settings.time_res
+		vmin, vmax, deltav = self.analysisTree.GetMinimum(var), self.analysisTree.GetMaximum(var), (self.signal_ch.offseted_adc_to_volts_cal['p1'] if var == 'voltageSignal' else self.settings.sigRes)
+		self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, deltav, vname, cuts, option)
+
 
 	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal','voltageHV','currentHV','timeHV']):
 		print 'Restoring tree with the following branches:', keepBranches, '...'
