@@ -93,6 +93,8 @@ class Settings_Caen:
 				if parser.has_section('RUN'):
 					if parser.has_option('RUN', 'time'):
 						self.points = int(np.ceil(parser.getfloat('RUN', 'time') * 1.0e-6 / self.time_res))
+                                                self.struct_fmt = '@{p}H'.format(p=self.points)
+                                                self.struct_len = struct.calcsize(self.struct_fmt)
 					if parser.has_option('RUN', 'post_trigger_percent'):
 						self.post_trig_percent = parser.getint('RUN', 'post_trigger_percent')
 					if parser.has_option('RUN', 'num_events'):

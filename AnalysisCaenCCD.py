@@ -18,6 +18,7 @@ from Channel_Caen import Channel_Caen
 from Settings_Caen import Settings_Caen
 from HV_Control import HV_Control
 from Utils import *
+from Langaus import LanGaus
 # from memory_profiler import profile
 
 trig_rand_time = 0.2
@@ -115,6 +116,7 @@ class AnalysisCaenCCD:
 			self.LoadPickles()
 			self.outDir = self.inDir
 			self.inputFile = self.in_tree_name + '.root'
+			self.SetFromSettingsFile()
 
 		elif infile != '' and directory == '.':
 			print 'Is analysis of data before 06/18...'
@@ -131,7 +133,6 @@ class AnalysisCaenCCD:
 		self.analysisTreeName = self.in_tree_name + '.analysis'
 
 		self.Load_Config_File()
-
 
 	def Load_Config_File(self):
 		parser = ConfigParser()
@@ -172,37 +173,9 @@ class AnalysisCaenCCD:
 				if parser.has_option('CUTS', 'current_cut'):
 					self.currentCut = parser.getfloat('CUTS', 'current_cut') * 1e-9
 
-	def AnalysisWaves(self, doCuts0=True):
-		self.OpenAnalysisROOTFile('UPDATE')
-		if doCuts0: self.CreateCut0()
-
-		if not self.hasBranch['peakPosition']:
-			self.LoadVectorsFromTree()
-			self.ExplicitVectorsFromDictionary()
-			if self.doPeakPos:
-				self.FindRealPeakPosition()
-			else:
-				self.peak_positions = np.full(self.events, self.peakTime)
-			self.FillTreePeakPositions()
-			self.CloseAnalysisROOTFile()
-			self.CloseInputROOTFiles()
-			self.Reset_Braches_Lists_And_Dictionaries()
-			self.LoadInputTree()
-			self.OpenAnalysisROOTFile('UPDATE')
-		# self.AddPeakPositionCut()
-		if not np.array([self.hasBranch[key0] for key0 in self.analysisScalarsBranches]).all():
-			self.LoadVectorsFromTree()
-			self.ExplicitVectorsFromDictionary()
-			self.FindPedestalPosition()
-			self.FindSignalPositions(self.peakBackward, self.peakForward)
-			self.CalculatePedestalsAndSignals()
-			self.FillPedestalsAndSignals()
-		self.CloseAnalysisROOTFile()
-		self.CloseInputROOTFiles()
-		self.Reset_Braches_Lists_And_Dictionaries()
-		self.LoadInputTree()
-		self.OpenAnalysisROOTFile('READ')
-		self.PlotPeakPositionDistributions()
+	def SetFromSettingsFile(self):
+		if self.settings:
+			self.bias = self.settings.bias
 
 	def LoadInputTree(self):
 		if not os.path.isdir(self.inDir):
@@ -246,6 +219,38 @@ class AnalysisCaenCCD:
 				elif os.path.isfile('{d}/{f}.veto'.format(d=self.inDir, f=self.in_tree_name)):
 					with open('{d}/{f}.veto'.format(d=self.inDir, f=self.in_tree_name)) as pklveto:
 						self.veto_ch = pickle.load(pklveto)
+
+	def AnalysisWaves(self, doCuts0=True):
+		self.OpenAnalysisROOTFile('UPDATE')
+		if doCuts0: self.CreateCut0()
+
+		if not self.hasBranch['peakPosition']:
+			self.LoadVectorsFromTree()
+			self.ExplicitVectorsFromDictionary()
+			if self.doPeakPos:
+				self.FindRealPeakPosition()
+			else:
+				self.peak_positions = np.full(self.events, self.peakTime)
+			self.FillTreePeakPositions()
+			self.CloseAnalysisROOTFile()
+			self.CloseInputROOTFiles()
+			self.Reset_Braches_Lists_And_Dictionaries()
+			self.LoadInputTree()
+			self.OpenAnalysisROOTFile('UPDATE')
+		# self.AddPeakPositionCut()
+		if not np.array([self.hasBranch[key0] for key0 in self.analysisScalarsBranches]).all():
+			self.LoadVectorsFromTree()
+			self.ExplicitVectorsFromDictionary()
+			self.FindPedestalPosition()
+			self.FindSignalPositions(self.peakBackward, self.peakForward)
+			self.CalculatePedestalsAndSignals()
+			self.FillPedestalsAndSignals()
+		self.CloseAnalysisROOTFile()
+		self.CloseInputROOTFiles()
+		self.Reset_Braches_Lists_And_Dictionaries()
+		self.LoadInputTree()
+		self.OpenAnalysisROOTFile('READ')
+		self.PlotPeakPositionDistributions()
 
 	def OpenAnalysisROOTFile(self, mode='READ'):
 		if not os.path.isdir(self.outDir):
@@ -549,21 +554,24 @@ class AnalysisCaenCCD:
 		self.signalWaveMeanVect = self.signalWaveVect.mean(axis=0)
 		self.signalWaveSigmaVect = self.signalWaveVect.std(axis=0)
 
-	def DrawHisto(self, name, xmin, xmax, deltax, var, varname, option='e'):
+	def DrawHisto(self, name, xmin, xmax, deltax, var, varname, cuts='', option='e'):
 		ro.TFormula.SetMaxima(100000)
-		if self.histo[name]:
-			self.histo[name].Delete()
+		if self.histo.has_key(name):
+			if self.histo[name]:
+				self.histo[name].Delete()
 			del self.histo[name]
 		self.histo[name] = ro.TH1F('h_' + name, 'h_' + name, int(np.floor((xmax - xmin) / deltax + 0.5)), xmin, xmax)
 		self.histo[name].GetXaxis().SetTitle(varname)
 		self.histo[name].GetYaxis().SetTitle('entries')
 		if 'goff' not in option:
-			if self.canvas[name]:
-				self.canvas[name].Close()
+			if self.canvas.has_key(name):
+				if self.canvas[name]:
+					self.canvas[name].Close()
 				del self.canvas[name]
 			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
 			self.canvas[name].cd()
-		self.analysisTree.Draw('{v}>>h_{n}'.format(v=var, n=name), self.cut0, option)
+		cuts0 = self.cut0.GetTitle() if cuts == '' else cuts
+		self.analysisTree.Draw('{v}>>h_{n}'.format(v=var, n=name), cuts0, option)
 		if 'goff' not in option:
 			self.canvas[name].SetGridx()
 			self.canvas[name].SetGridy()
@@ -574,16 +582,18 @@ class AnalysisCaenCCD:
 
 	def DrawHisto2D(self, name, varx, xmin, xmax, deltax, xname, vary, ymin, ymax, deltay, yname, cuts='', option='colz'):
 		ro.TFormula.SetMaxima(100000)
-		if self.histo[name]:
-			self.histo[name].Delete()
+		if self.histo.has_key(name):
+			if self.histo[name]:
+				self.histo[name].Delete()
 			del self.histo[name]
 		self.histo[name] = ro.TH2F('h_' + name, 'h_' + name, int(np.floor((xmax - xmin) / deltax + 0.5) + 2), xmin - deltax, xmax + deltax, int(np.floor((ymax - ymin) / deltay + 0.5) + 2), ymin - deltay, ymax + deltay)
 		self.histo[name].GetXaxis().SetTitle(xname)
 		self.histo[name].GetYaxis().SetTitle(yname)
 		self.histo[name].GetZaxis().SetTitle('entries')
 		if 'goff' not in option:
-			if self.canvas[name]:
-				self.canvas[name].Close()
+			if self.canvas.has_key(name):
+				if self.canvas[name]:
+					self.canvas[name].Close()
 				del self.canvas[name]
 			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
 			self.canvas[name].cd()
@@ -599,7 +609,7 @@ class AnalysisCaenCCD:
 		ro.TFormula.SetMaxima(1000)
 
 	def PlotPeakPositionDistributions(self, name='peakPosDist', low_t=1e-9, up_t=5001e-9, nbins=500):
-		self.DrawHisto(name, low_t, up_t, (up_t - low_t) / nbins, 'peakPosition', 'Peak Position [s]', 'e')
+		self.DrawHisto(name, low_t, up_t, (up_t - low_t) / nbins, 'peakPosition', 'Peak Position [s]', '', 'e')
 		self.histo[name].GetXaxis().SetRangeUser(self.histo[name].GetMean() - 5 * self.histo[name].GetRMS(), self.histo[name].GetMean() + 5 * self.histo[name].GetRMS())
 		func = ro.TF1('fit_' + name, 'gaus', low_t, up_t)
 		func.SetNpx(1000)
@@ -610,9 +620,19 @@ class AnalysisCaenCCD:
 		self.peakTime = fit.Parameter(1)
 		self.AddPeakPositionCut()
 
-	def PlotSignal
+	def PlotSignal(self, name='signal', bins=0, cuts='', option='e'):
+		if self.bias >= 0:
+			plotvar = '-signal'
+			vmax, vmin, deltav = -self.analysisTree.GetMinimum('signal'), -self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			plotVarName = '-Signal [V]'
+		else:
+			plotvar = 'signal'
+			vmin, vmax, deltav = self.analysisTree.GetMinimum('signal'), self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			plotVarName = 'Signal [V]'
+		deltav = deltav if bins == 0 else (vmax - vmin) / float(bins)
+		self.DrawHisto(name, vmin - deltav/2.0, vmax + deltav/2.0, deltav, plotvar, plotVarName, cuts, option)
 
-	def PlotWaveforms(self, name='SignalWaveform', type='signal', cuts='', option='colz'):
+	def PlotWaveforms(self, name='SignalWaveform', type='signal', vbins=0, cuts='', option='colz'):
 		var = 'voltageSignal' if 'signal' in type.lower() else 'voltageTrigger' if 'trig' in type.lower() else 'voltageVeto' if 'veto' in type.lower() else ''
 		if var == '':
 			print 'type should be "signal", "trigger" or "veto"'
@@ -621,8 +641,10 @@ class AnalysisCaenCCD:
 		vname = ('signal' if var == 'voltageSignal' else 'trigger' if var == 'voltageTrigger' else 'veto' if var == 'voltageVeto' else '') + ' [V]'
 		tmin, tmax, deltat = self.analysisTree.GetMinimum('time'), self.analysisTree.GetMaximum('time'), self.settings.time_res
 		vmin, vmax, deltav = self.analysisTree.GetMinimum(var), self.analysisTree.GetMaximum(var), (self.signal_ch.offseted_adc_to_volts_cal['p1'] if var == 'voltageSignal' else self.settings.sigRes)
-		self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, deltav, vname, cuts, option)
-
+		if vbins == 0:
+			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, deltav, vname, cuts, option)
+		else:
+			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, (vmax-vmin)/vbins, vname, cuts, option)
 
 	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal','voltageHV','currentHV','timeHV']):
 		print 'Restoring tree with the following branches:', keepBranches, '...'
@@ -668,7 +690,7 @@ def main():
 	parser.add_option('-i', '--inputFile', dest='infile', default='', type='string', help='Path to root file to be analysed')
 	parser.add_option('-b', '--bias', dest='bias', default=0, type='float', help='Bias voltage used')
 	parser.add_option('-v', '--verbose', dest='verb', default=False, help='Toggles verbose', action='store_true')
-	# parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic conversion and analysis afterwards', action='store_true')
+	parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic basic analysis', action='store_true')
 
 	(options, args) = parser.parse_args()
 	directory = str(options.inDir)
@@ -676,11 +698,14 @@ def main():
 	infile = str(options.infile)
 	bias = float(options.bias)
 	verb = bool(options.verb)
+	autom = bool(options.auto)
 
 	ana = AnalysisCaenCCD(directory, config, infile, bias, verb)
 
 	# ana.LoadAnalysisTree()
 	# ana.LoadPickles()
+	if autom:
+		ana.AnalysisWaves()
 	return ana
 
 	# if auto:
