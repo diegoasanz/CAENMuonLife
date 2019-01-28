@@ -22,12 +22,17 @@ trig_rand_time = 0.2
 wait_time_hv = 7
 
 class CCD_Caen:
-	def __init__(self, infile='None', verbose=False):
+	def __init__(self, infile='None', verbose=False, settingsObj=None):
 		print 'Starting CCD program ...'
 		self.infile = infile
 		self.verb = verbose
-		self.settings = Settings_Caen(self.infile, self.verb)
-		self.settings.ReadInputFile()
+		if self.infile != 'None':
+			self.settings = Settings_Caen(self.infile, self.verb)
+			self.settings.ReadInputFile()
+		elif settingsObj:
+			self.settings = settingsObj
+		else:
+			ExitMessage('No setting file was given, or settings object. Quittint!')
 		self.settings.Get_Calibration_Constants()
 		self.settings.SetOutputFiles()
 
@@ -436,7 +441,7 @@ class CCD_Caen:
 
 def main():
 	parser = OptionParser()
-	parser.add_option('-i', '--infile', dest='infile', default='', type='string',
+	parser.add_option('-i', '--infile', dest='infile', default='None', type='string',
 	                  help='Input configuration file. e.g. CAENCalibration.cfg')
 	parser.add_option('-v', '--verbose', dest='verb', default=False, help='Toggles verbose', action='store_true')
 	parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic conversion and analysis afterwards', action='store_true')
@@ -459,7 +464,7 @@ def main():
 		if not ccd.settings.simultaneous_conversion:
 			ccd.CreateRootFile(files_moved=True)
 			while ccd.pconv.poll() is None:
-				continue
+				time.sleep(3)
 			ccd.CloseSubprocess('converter', stdin=False, stdout=False)
 
 	print 'Finished :)'
