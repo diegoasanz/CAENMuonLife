@@ -18,7 +18,7 @@ class LanGaus:
 		self.chi2 = 0
 		self.ndf = 0
 		# self.fit_range = [max(self.histo.GetMean()*0.3, 0), min(self.histo.GetXaxis().GetXmax(), self.histo.GetMean()*3)]
-		self.fit_range = [max(self.histo.GetMean()*0.2, 0), min(self.histo.GetXaxis().GetXmax(), self.histo.GetMean()*3)]
+		self.fit_range = {'min': max(self.histo.GetMean()*0.2, 0), 'max': min(self.histo.GetXaxis().GetXmax(), self.histo.GetMean()*3)}
 		# self.fit_range = [0, min(self.histo.GetXaxis().GetXmax(), self.histo.GetMean()*5)]
 		self.fit = None
 		self.EstimateParameters()
@@ -38,7 +38,6 @@ class LanGaus:
 			sums += fland * ro.TMath.Gaus(x[0], xx, params[3])
 		return params[2] * step * sums / (np.sqrt(2 * np.pi, dtype='f8') * params[3])
 
-
 	def EstimateParameters(self):
 		self.params[0] = self.histo.GetRMS()/5.7
 		self.params[1] = self.histo.GetBinCenter(self.histo.GetMaximumBin())
@@ -48,14 +47,14 @@ class LanGaus:
 	def EstimateParametersLimits(self):
 		self.paramsLimitsLow[0] = self.histo.GetRMS()/15.0
 		self.paramsLimitsLow[1] = max(0, self.histo.GetBinCenter(self.histo.GetMaximumBin()) - 3*self.params[0])
-		self.paramsLimitsLow[2] = self.histo.Integral() / 2.0
+		self.paramsLimitsLow[2] = self.histo.Integral() / 5000.0
 		self.paramsLimitsLow[3] = self.histo.GetRMS() / 5.0
 		self.paramsLimitsHigh[0] = self.histo.GetRMS()/4.0
 		self.paramsLimitsHigh[1] = min(self.histo.GetXaxis().GetXmax(), self.histo.GetBinCenter(self.histo.GetMaximumBin()) + 3*self.params[0])
 		self.paramsLimitsHigh[2] = self.histo.Integral() * 5000
 		self.paramsLimitsHigh[3] = self.histo.GetRMS()
 
-	def LanGausFit(self, nconv=1000, doLikelihood=False):
+	def LanGausFit(self, nconv=1000, doLikelihood=False, xmin=-10000000, xmax=-10000000):
 		fit_name = 'fit_{n}'.format(n=self.histo.GetName())
 		self.conv_steps = nconv
 
@@ -63,17 +62,17 @@ class LanGaus:
 		if fit_old:
 			fit_old.Delete()
 			del fit_old
+		self.fit_range['min'] = xmin if xmin > -10000000 else self.histo.GetBinLowEdge(self.histo.FindFirstBinAbove(0))
+		self.fit_range['max'] = xmax if xmax > -10000000 else self.histo.GetBinLowEdge(self.histo.FindLastBinAbove(0) + 1)
 		self.fit = ro.TF1(fit_name, self.LangausFunc, self.histo.GetXaxis().GetXmin(), self.histo.GetXaxis().GetXmax(), 4)
 		self.fit.SetNpx(1000)
 		self.fit.SetParameters(self.params)
 		self.fit.SetParNames('Width', 'MP', 'Area', 'GSigma')
-		options = 'QRB0ML' if doLikelihood else 'QRB0M'
+		options = 'QB0ML' if doLikelihood else 'QB0M'
 		ro.Math.MinimizerOptions.SetDefaultMinimizer('Minuit2', 'Migrad')
 		for i in xrange(len(self.params)):
 			self.fit.SetParLimits(i, self.paramsLimitsLow[i], self.paramsLimitsHigh[i])
-		minbinh, maxbinh = self.histo.FindFirstBinAbove(0), self.histo.FindLastBinAbove(0)
-		xfitmin, xfitmax = self.histo.GetBinLowEdge(minbinh), self.histo.GetBinLowEdge(maxbinh + 1)
-		self.histo.Fit(fit_name, options, '', xfitmin, xfitmax)
+		self.histo.Fit(fit_name, options, '', self.fit_range['min'], self.fit_range['max'])
 		self.fit.GetParameters(self.params)
 		for i in xrange(len(self.params)):
 			self.paramsFitErrors[i] = self.fit.GetParError(i)

@@ -113,6 +113,22 @@ def SetDefaultFitStats(histo, fit, color=ro.kRed):
 	histo.FindObject('stats').SetY1NDC(0.6)
 	histo.FindObject('stats').SetY2NDC(0.9)
 
+def AddLineToStats(canvas, key, value=0, samplelinekey='Mean'):
+	if canvas:
+		ps = canvas.GetPrimitive('stats')
+		ps.SetName('mystats')
+		lol = ps.GetListOfLines()
+		sampleline = ps.GetLineWith(samplelinekey)
+		line = ro.TLatex(0, 0, '{k} = {v:.2f}'.format(k=key, v=value))
+		line.SetTextAlign(sampleline.GetTextAlign())
+		line.SetTextAngle(sampleline.GetTextAngle())
+		line.SetTextColor(sampleline.GetTextColor())
+		line.SetTextFont(sampleline.GetTextFont())
+		line.SetTextSize(sampleline.GetTextSize())
+		lol.Add(line)
+		canvas.Modified()
+
+
 if __name__ == '__main__':
 	print 'blaaaa'
 

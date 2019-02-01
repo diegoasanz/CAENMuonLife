@@ -108,6 +108,8 @@ class AnalysisCaenCCD:
 		self.canvas = {}
 		self.profile = {}
 		self.histo = {}
+		self.langaus = {}
+		self.line = {}
 
 
 		if infile == '' and directory != '.':
@@ -580,7 +582,7 @@ class AnalysisCaenCCD:
 			SetDefault1DStats(self.histo[name])
 		ro.TFormula.SetMaxima(1000)
 
-	def DrawHisto2D(self, name, varx, xmin, xmax, deltax, xname, vary, ymin, ymax, deltay, yname, cuts='', option='colz'):
+	def DrawHisto2D(self, name, varx, xmin, xmax, deltax, xname, vary, ymin, ymax, deltay, yname, cuts='', option='colz', num_evts=1000000000, start_ev=0):
 		ro.TFormula.SetMaxima(100000)
 		if self.histo.has_key(name):
 			if self.histo[name]:
@@ -598,7 +600,7 @@ class AnalysisCaenCCD:
 			self.canvas[name] = ro.TCanvas('c_' + name, 'c_' + name, 1)
 			self.canvas[name].cd()
 		cuts0 = self.cut0.GetTitle() if cuts == '' else cuts
-		self.analysisTree.Draw('{y}:{x}>>h_{n}'.format(y=vary, x=varx, n=name), cuts0, option)
+		self.analysisTree.Draw('{y}:{x}>>h_{n}'.format(y=vary, x=varx, n=name), cuts0, option, num_evts, start_ev)
 		if 'goff' not in option:
 			self.canvas[name].SetGridx()
 			self.canvas[name].SetGridy()
@@ -620,31 +622,35 @@ class AnalysisCaenCCD:
 		self.peakTime = fit.Parameter(1)
 		self.AddPeakPositionCut()
 
-	def PlotSignal(self, name='signal', bins=0, cuts='', option='e'):
+	def PlotSignal(self, name='signal', bins=0, cuts='', option='e', min=0, max=2.0):
 		if self.bias >= 0:
 			plotvar = '-signal'
-			vmax, vmin, deltav = -self.analysisTree.GetMinimum('signal'), -self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			# vmax, vmin, deltav = -self.analysisTree.GetMinimum('signal'), -self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			deltav = self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
 			plotVarName = '-Signal [V]'
 		else:
 			plotvar = 'signal'
-			vmin, vmax, deltav = self.analysisTree.GetMinimum('signal'), self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			# vmin, vmax, deltav = self.analysisTree.GetMinimum('signal'), self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
+			deltav = self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
 			plotVarName = 'Signal [V]'
+		vmin, vmax = min, max
 		deltav = deltav if bins == 0 else (vmax - vmin) / float(bins)
 		self.DrawHisto(name, vmin - deltav/2.0, vmax + deltav/2.0, deltav, plotvar, plotVarName, cuts, option)
 
-	def PlotWaveforms(self, name='SignalWaveform', type='signal', vbins=0, cuts='', option='colz'):
+	def PlotWaveforms(self, name='SignalWaveform', type='signal', vbins=0, cuts='', option='colz', start_ev=0, num_evs=0):
 		var = 'voltageSignal' if 'signal' in type.lower() else 'voltageTrigger' if 'trig' in type.lower() else 'voltageVeto' if 'veto' in type.lower() else ''
 		if var == '':
 			print 'type should be "signal", "trigger" or "veto"'
 			return
 		# cuts0 = self.cut0.GetTitle() if cuts == '' else cuts
 		vname = ('signal' if var == 'voltageSignal' else 'trigger' if var == 'voltageTrigger' else 'veto' if var == 'voltageVeto' else '') + ' [V]'
+		num_events = self.analysisTree.GetEntries() if num_evs == 0 else num_evs
 		tmin, tmax, deltat = self.analysisTree.GetMinimum('time'), self.analysisTree.GetMaximum('time'), self.settings.time_res
 		vmin, vmax, deltav = self.analysisTree.GetMinimum(var), self.analysisTree.GetMaximum(var), (self.signal_ch.offseted_adc_to_volts_cal['p1'] if var == 'voltageSignal' else self.settings.sigRes)
 		if vbins == 0:
-			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, deltav, vname, cuts, option)
+			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, deltav, vname, cuts, option, num_events, start_ev)
 		else:
-			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, (vmax-vmin)/vbins, vname, cuts, option)
+			self.DrawHisto2D(name, 'time', tmin - deltat/2.0, tmax + deltat/2.0, deltat, 'time[s]', var, vmin, vmax, (vmax-vmin)/vbins, vname, cuts, option, num_events, start_ev)
 
 	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal','voltageHV','currentHV','timeHV']):
 		print 'Restoring tree with the following branches:', keepBranches, '...'
@@ -682,6 +688,30 @@ class AnalysisCaenCCD:
 	def PrintPlotLimits(self, ti=-5.12e-7, tf=4.606e-6, vmin=-0.7, vmax=0.05):
 		print np.double([(tf-ti)/float(self.settings.time_res) +1, ti-self.settings.time_res/2.0,
 		                 tf+self.settings.time_res/2.0, (vmax-vmin)/self.settings.sigRes, vmin, vmax])
+
+	def FitLanGaus(self, name, conv_steps=100, color=ro.kRed, xmin=-10000000, xmax=-10000000):
+		self.canvas[name].cd()
+		self.langaus[name] = LanGaus(self.histo[name])
+		self.langaus[name].LanGausFit(conv_steps, xmin=xmin, xmax=xmax)
+		xlow, xhigh = self.langaus[name].fit_range['min'], self.langaus[name].fit_range['max']
+		self.line[name] = ro.TLine(xlow, 0, xhigh, 0)
+		self.line[name].SetLineColor(ro.kViolet + 1)
+		self.line[name].SetLineWidth(4)
+		fitmean = self.langaus[name].fit.Mean(xlow, xhigh)
+		self.langaus[name].fit.Draw('same')
+		self.langaus[name].fit.SetLineColor(color)
+		self.line[name].Draw('same')
+		ro.gPad.Update()
+		self.histo[name].FindObject('stats').SetOptFit(1)
+		self.histo[name].FindObject('stats').SetX1NDC(0.6)
+		self.histo[name].FindObject('stats').SetX2NDC(0.9)
+		self.histo[name].FindObject('stats').SetY1NDC(0.6)
+		self.histo[name].FindObject('stats').SetY2NDC(0.9)
+		AddLineToStats(self.canvas[name], 'Mean_{Fit}', fitmean)
+		self.histo[name].SetStats(0)
+		self.canvas[name].Modified()
+		ro.gPad.Update()
+		print '{n}: <PH> = {f}'.format(n=name, f=fitmean)
 
 def main():
 	parser = OptionParser()
