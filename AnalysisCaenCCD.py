@@ -139,7 +139,7 @@ class AnalysisCaenCCD:
 	def Load_Config_File(self):
 		parser = ConfigParser()
 		if os.path.isfile(self.config):
-			print 'Reading configuration file:', self.config, '...'
+			print 'Reading configuration file:', self.config, '...', ; sys.stdout.flush()
 			parser.read(self.config)
 
 			if parser.has_section('ANALYSIS'):
@@ -174,6 +174,7 @@ class AnalysisCaenCCD:
 					self.peakPosCut = parser.getfloat('CUTS', 'peak_position') * 1e-6
 				if parser.has_option('CUTS', 'current_cut'):
 					self.currentCut = parser.getfloat('CUTS', 'current_cut') * 1e-9
+			print 'Done'
 
 	def SetFromSettingsFile(self):
 		if self.settings:
@@ -226,32 +227,24 @@ class AnalysisCaenCCD:
 		self.OpenAnalysisROOTFile('UPDATE')
 		if doCuts0: self.CreateCut0()
 
-		if not self.hasBranch['peakPosition']:
+		if not self.hasBranch['peakPosition'] or not np.array([self.hasBranch[key0] for key0 in self.analysisScalarsBranches]).all():
+			self.CloseAnalysisROOTFile()
+			self.OpenAnalysisROOTFile('RECREATE')
 			self.LoadVectorsFromTree()
 			self.ExplicitVectorsFromDictionary()
 			if self.doPeakPos:
 				self.FindRealPeakPosition()
 			else:
 				self.peak_positions = np.full(self.events, self.peakTime)
-			self.FillTreePeakPositions()
+			self.FindPedestalPosition()
+			self.FindSignalPositions(self.peakBackward, self.peakForward)
+			self.CalculatePedestalsAndSignals()
+			self.FillAnalysisBranches()
 			self.CloseAnalysisROOTFile()
 			self.CloseInputROOTFiles()
 			self.Reset_Braches_Lists_And_Dictionaries()
 			self.LoadInputTree()
-			self.OpenAnalysisROOTFile('UPDATE')
-		# self.AddPeakPositionCut()
-		if not np.array([self.hasBranch[key0] for key0 in self.analysisScalarsBranches]).all():
-			self.LoadVectorsFromTree()
-			self.ExplicitVectorsFromDictionary()
-			self.FindPedestalPosition()
-			self.FindSignalPositions(self.peakBackward, self.peakForward)
-			self.CalculatePedestalsAndSignals()
-			self.FillPedestalsAndSignals()
-		self.CloseAnalysisROOTFile()
-		self.CloseInputROOTFiles()
-		self.Reset_Braches_Lists_And_Dictionaries()
-		self.LoadInputTree()
-		self.OpenAnalysisROOTFile('READ')
+			self.OpenAnalysisROOTFile('READ')
 		self.PlotPeakPositionDistributions()
 
 	def OpenAnalysisROOTFile(self, mode='READ'):
@@ -373,13 +366,14 @@ class AnalysisCaenCCD:
 		self.ptsWave = self.in_root_tree.GetLeaf('time').GetLen()
 		working_tree = self.analysisTree if self.analysisTreeExisted else self.in_root_tree
 		branches_to_load_1D = [branch for branch in self.branches1DLoad if not self.dic1DVectLoaded[branch]]
-		leng = working_tree.Draw(':'.join(branches_to_load_1D), self.cut0, 'goff para', self.max_events)
+		options = 'goff' if len(branches_to_load_1D) == 1 else 'goff para'
+		leng = working_tree.Draw(':'.join(branches_to_load_1D), self.cut0, options, self.max_events)
 		if leng == -1:
 			print 'Error, could not load the branches: {b}. Try again :('.format(b=':'.join(branches_to_load_1D))
 			return
 		while leng > working_tree.GetEstimate():
 			working_tree.SetEstimate(leng)
-			leng = working_tree.Draw(':'.join(branches_to_load_1D), self.cut0, 'goff para', self.max_events)
+			leng = working_tree.Draw(':'.join(branches_to_load_1D), self.cut0, options, self.max_events)
 		self.events = leng
 		for pos, branch in enumerate(branches_to_load_1D):
 			if self.verb: print 'Vectorising branch:', branch, '...', ; sys.stdout.flush()
@@ -428,21 +422,52 @@ class AnalysisCaenCCD:
 				self.peak_positions = self.dicBraVect1D['peakPosition']
 
 	def FindRealPeakPosition(self):
-		print 'Getting real peak positions...', ;sys.stdout.flush()
+		print 'Getting real peak positions...'
 		mpos = self.signalWaveVect.argmin(axis=1) if self.bias >= 0 else self.signalWaveVect.argmax(axis=1)
-		time_mpos = self.timeVect[:, mpos].diagonal()
-		xmin, xmax = time_mpos - self.pedestalIntegrationTime / 2.0, time_mpos + self.pedestalIntegrationTime / 2.0
-		fit = [ro.TGraph(len(timei), timei, self.signalWaveVect[it]).Fit('pol2', 'QMN0FS', '', xmin[it], xmax[it]) for it, timei in enumerate(self.timeVect)]
-		b, a = np.array([fiti.Parameter(1) for fiti in fit]), np.array([fiti.Parameter(2) for fiti in fit])
-		self.peak_positions = np.divide(-b, 2 * a)
-		print 'Done'
+		# time_mpos = self.timeVect[:, mpos].diagonal()
+		time_mpos = np.array([self.timeVect[it, pos] for it, pos in enumerate(mpos)])
+		xmin, xmax = time_mpos - self.pedestalIntegrationTime, time_mpos + self.pedestalIntegrationTime
+		par0lim = {'low': 1e-30, 'up': 1e30} if self.bias >= 0 else {'low': -1e30, 'up': -1e-30}
+		par0ini = 3.14 if self.bias >= 0 else -3.14
+		ro.Math.MinimizerOptions.SetDefaultMinimizer('Minuit2', 'Migrad')
+		self.peak_positions = []
+		print 'Calculating peak positions...'
+		self.utils.CreateProgressBar(len(self.timeVect))
+		self.utils.bar.start()
+		for it, timei in enumerate(self.timeVect):
+			fit_fcn = ro.TF1('fit_{it}'.format(it=it), '[0]*(x-[1])^2+[2]', xmin[it], xmax[it])
+			# par2limFact = {'low': -10.0, 'up': -0.1} if self.bias >= 0 else {'low': 0.1, 'up': 10.0}
+			fit_fcn.SetParameter(0, par0ini)
+			fit_fcn.SetParLimits(0, par0lim['low'], par0lim['up'])
+			fit_fcn.SetParameter(1, time_mpos[it])
+			fit_fcn.SetParLimits(1, time_mpos[it] - 2 * self.pedestalIntegrationTime, time_mpos[it] + 2 * self.pedestalIntegrationTime)
+			fit_fcn.SetParameter(2, self.signalWaveVect[it, mpos[it]])
+			fit_fcn.SetParLimits(2, -2.0 * abs(self.signalWaveVect[it, mpos[it]]), 2.0 * abs(self.signalWaveVect[it, mpos[it]]))
+			fit = ro.TGraph(len(timei), timei, self.signalWaveVect[it]).Fit('fit_{it}'.format(it=it), 'QBMN0FS', '', xmin[it], xmax[it])
+			self.peak_positions.append(fit.Parameter(1))
+			# fit_fcn.Delete()
+			# fit.Delete()
+			self.utils.bar.update(it + 1)
+		# fit = [ro.TGraph(len(timei), timei, self.signalWaveVect[it]).Fit('pol2', 'QMN0FS', '', xmin[it], xmax[it]) for it, timei in enumerate(self.timeVect)]
+		# fit = [ro.TGraph(len(timei), timei, self.signalWaveVect[it]).Fit('fit_{it}'.format(it=it), 'QBMN0FS', '', xmin[it], xmax[it]) for it, timei in enumerate(self.timeVect)]
+		# for it, timei in enumerate(self.timeVect):
+		# 	pass
+		# b, a = np.array([fiti.Parameter(1) for fiti in fit]), np.array([fiti.Parameter(2) for fiti in fit])
+		# self.peak_positions = np.divide(-b, 2 * a)
+		# self.peak_positions = np.array([fiti.Parameter(1) for fiti in fit])
+		self.peak_positions = np.array(self.peak_positions)
+		self.utils.bar.finish()
+		print 'Done getting real peak positions'
 
 	def FillTreePeakPositions(self):
 		print 'Filling tree with peak positions...'
 		peakPosBra = self.analysisTree.Branch('peakPosition', self.peak_position, 'peakPosition/F')
-		self.utils.CreateProgressBar(self.in_root_tree.GetEntries())
+		entries = self.in_root_tree.GetEntries()
+		self.CloseInputROOTFiles()
+		self.utils.CreateProgressBar(entries)
 		self.utils.bar.start()
-		for ev in xrange(self.in_root_tree.GetEntries()):
+		self.analysisFile.cd()
+		for ev in xrange(entries):
 			# self.in_root_tree.GetEntry(ev)
 			if ev in self.eventVect:
 				try:
@@ -456,23 +481,25 @@ class AnalysisCaenCCD:
 			self.utils.bar.update(ev + 1)
 		self.analysisFile.cd()
 		if not self.analysisTree.GetFriend(self.in_tree_name):
-			self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=self.inDir, f=self.in_tree_name))
+			self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=os.path.abspath(self.inDir), f=self.in_tree_name))
 		self.analysisTree.Write()
 		self.utils.bar.finish()
 
 	def CloseAnalysisROOTFile(self):
-		if self.analysisFile.IsOpen():
-			self.analysisFile.Close()
-		if self.analysisTree:
-			del self.analysisTree
+		if self.analysisFile:
+			if self.analysisFile.IsOpen():
+				self.analysisFile.Close()
+			if self.analysisTree:
+				del self.analysisTree
 		self.analysisTree = None
 		self.analysisFile = None
 
 	def CloseInputROOTFiles(self):
-		if self.in_root_file.IsOpen():
-			self.in_root_file.Close()
-		if self.in_root_tree:
-			del self.in_root_tree
+		if self.in_root_file:
+			if self.in_root_file.IsOpen():
+				self.in_root_file.Close()
+			if self.in_root_tree:
+				del self.in_root_tree
 		self.in_root_file = None
 		self.in_root_tree = None
 
@@ -518,9 +545,12 @@ class AnalysisCaenCCD:
 		pedSignalBra = self.analysisTree.Branch('signalAndPedestal', self.sigAndPed, 'signalAndPedestal/F')
 		pedSignalSigmaBra = self.analysisTree.Branch('signalAndPedestalSigma', self.sigAndPed, 'signalAndPedestalSigma/F')
 		sigBra = self.analysisTree.Branch('signal', self.sig, 'signal/F')
+		entries = self.in_root_tree.GetEntries()
+		self.CloseInputROOTFiles()
+		self.analysisFile.cd()
 		self.utils.CreateProgressBar(self.max_events)
 		self.utils.bar.start()
-		for ev in xrange(self.in_root_tree.GetEntries()):
+		for ev in xrange(entries):
 			# self.in_root_tree.GetEntry(ev)
 			self.analysisTree.GetEntry(ev)
 			if ev in self.eventVect:
@@ -546,9 +576,50 @@ class AnalysisCaenCCD:
 			# pedSignalSigmaBra.Fill()
 			# sigBra.Fill()
 			self.utils.bar.update(ev + 1)
-		self.analysisFile.cd()
 		if not self.analysisTree.GetFriend(self.in_tree_name):
-			self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=self.inDir, f=self.in_tree_name))
+			self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=os.path.abspath(self.inDir), f=self.in_tree_name))
+		# self.analysisTree.Write('', ro.TObject.kOverwrite)
+		self.analysisTree.Write('', ro.TObject.kWriteDelete)
+		self.utils.bar.finish()
+
+	def FillAnalysisBranches(self):
+		print 'Filling analysis tree ...'
+		peakPosBra = self.analysisTree.Branch('peakPosition', self.peak_position, 'peakPosition/F')
+		pedBra = self.analysisTree.Branch('pedestal', self.ped, 'pedestal/F')
+		pedSigmaBra = self.analysisTree.Branch('pedestalSigma', self.pedSigma, 'pedestalSigma/F')
+		pedSignalBra = self.analysisTree.Branch('signalAndPedestal', self.sigAndPed, 'signalAndPedestal/F')
+		pedSignalSigmaBra = self.analysisTree.Branch('signalAndPedestalSigma', self.sigAndPed, 'signalAndPedestalSigma/F')
+		sigBra = self.analysisTree.Branch('signal', self.sig, 'signal/F')
+		entries = self.in_root_tree.GetEntries()
+		self.CloseInputROOTFiles()
+		self.analysisFile.cd()
+		self.utils.CreateProgressBar(self.max_events)
+		self.utils.bar.start()
+		for ev in xrange(entries):
+			# self.in_root_tree.GetEntry(ev)
+			if ev in self.eventVect:
+				try:
+					argum = np.argwhere(ev == self.eventVect).flatten()
+					self.peak_position.itemset(self.peak_positions[argum])
+					self.ped.itemset(self.pedVect[argum])
+					self.pedSigma.itemset(self.pedSigmaVect[argum])
+					self.sigAndPed.itemset(self.sigAndPedVect[argum])
+					self.sigAndPedSigma.itemset(self.sigAndPedSigmaVect[argum])
+					self.sig.itemset(self.sigVect[argum])
+				except ValueError:
+					ExitMessage('Could not fill event {ev}. Exiting...'.format(ev=ev), os.EX_DATAERR)
+			else:
+				self.peak_position.itemset(-100000)
+				self.ped.itemset(-100000)
+				self.pedSigma.itemset(-100000)
+				self.sigAndPed.itemset(-100000)
+				self.sigAndPedSigma.itemset(-100000)
+				self.sig.itemset(-100000)
+			self.analysisTree.Fill()
+			self.utils.bar.update(ev + 1)
+		if not self.analysisTree.GetFriend(self.in_tree_name):
+			self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=os.path.abspath(self.inDir), f=self.in_tree_name))
+		# self.analysisTree.Write('', ro.TObject.kOverwrite)
 		self.analysisTree.Write()
 		self.utils.bar.finish()
 
@@ -580,6 +651,7 @@ class AnalysisCaenCCD:
 			self.canvas[name].SetTicky()
 			ro.gPad.Update()
 			SetDefault1DStats(self.histo[name])
+			ro.gPad.Update()
 		ro.TFormula.SetMaxima(1000)
 
 	def DrawHisto2D(self, name, varx, xmin, xmax, deltax, xname, vary, ymin, ymax, deltay, yname, cuts='', option='colz', num_evts=1000000000, start_ev=0):
@@ -610,8 +682,8 @@ class AnalysisCaenCCD:
 			SetDefault2DStats(self.histo[name])
 		ro.TFormula.SetMaxima(1000)
 
-	def PlotPeakPositionDistributions(self, name='peakPosDist', low_t=1e-9, up_t=5001e-9, nbins=500):
-		self.DrawHisto(name, low_t, up_t, (up_t - low_t) / nbins, 'peakPosition', 'Peak Position [s]', '', 'e')
+	def PlotPeakPositionDistributions(self, name='peakPosDist', low_t=1e-9, up_t=5001e-9, nbins=500, cut=''):
+		self.DrawHisto(name, low_t, up_t, (up_t - low_t) / nbins, 'peakPosition', 'Peak Position [s]', cut, 'e')
 		self.histo[name].GetXaxis().SetRangeUser(self.histo[name].GetMean() - 5 * self.histo[name].GetRMS(), self.histo[name].GetMean() + 5 * self.histo[name].GetRMS())
 		func = ro.TF1('fit_' + name, 'gaus', low_t, up_t)
 		func.SetNpx(1000)
@@ -636,6 +708,7 @@ class AnalysisCaenCCD:
 		vmin, vmax = min, max
 		deltav = deltav if bins == 0 else (vmax - vmin) / float(bins)
 		self.DrawHisto(name, vmin - deltav/2.0, vmax + deltav/2.0, deltav, plotvar, plotVarName, cuts, option)
+
 
 	def PlotWaveforms(self, name='SignalWaveform', type='signal', vbins=0, cuts='', option='colz', start_ev=0, num_evs=0):
 		var = 'voltageSignal' if 'signal' in type.lower() else 'voltageTrigger' if 'trig' in type.lower() else 'voltageVeto' if 'veto' in type.lower() else ''
@@ -698,11 +771,12 @@ class AnalysisCaenCCD:
 		self.line[name].SetLineColor(ro.kViolet + 1)
 		self.line[name].SetLineWidth(4)
 		fitmean = self.langaus[name].fit.Mean(xlow, xhigh)
+		self.histo[name].FindObject('stats').SetOptFit(1)
+		ro.gPad.Update()
 		self.langaus[name].fit.Draw('same')
 		self.langaus[name].fit.SetLineColor(color)
 		self.line[name].Draw('same')
 		ro.gPad.Update()
-		self.histo[name].FindObject('stats').SetOptFit(1)
 		self.histo[name].FindObject('stats').SetX1NDC(0.6)
 		self.histo[name].FindObject('stats').SetX2NDC(0.9)
 		self.histo[name].FindObject('stats').SetY1NDC(0.6)
@@ -712,6 +786,17 @@ class AnalysisCaenCCD:
 		self.canvas[name].Modified()
 		ro.gPad.Update()
 		print '{n}: <PH> = {f}'.format(n=name, f=fitmean)
+
+	def SaveCanvasInlist(self, lista):
+		if not os.path.isdir('{d}'.format(d=self.inDir)):
+			ExitMessage('The directory does not exist!!!!', os.EX_UNAVAILABLE)
+		for canv in lista:
+			if self.canvas.has_key(canv):
+				self.canvas[canv].SaveAs('{d}/{c}.png'.format(d=self.inDir, c=canv))
+				self.canvas[canv].SaveAs('{d}/{c}.root'.format(d=self.inDir, c=canv))
+
+	def SaveAllCanvas(self):
+		self.SaveCanvasInlist(self.canvas.keys())
 
 def main():
 	parser = OptionParser()
@@ -736,6 +821,11 @@ def main():
 	# ana.LoadPickles()
 	if autom:
 		ana.AnalysisWaves()
+		ana.PlotWaveforms('SelectedWaveforms', 'signal', cuts=ana.cut0.GetTitle())
+		ana.canvas['SelectedWaveforms'].SetLogz()
+		ana.PlotSignal('PH', cuts=ana.cut0.GetTitle())
+		ana.FitLanGaus('PH')
+		ana.SaveAllCanvas()
 	return ana
 
 	# if auto:
