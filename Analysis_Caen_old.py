@@ -325,7 +325,7 @@ class CCD_Analysis:
 		self.hasBranch = {}
 
 	def AddPeakPositionCut(self):
-		self.cut0 += ro.TCut('peakPosCut', 'abs(peakPosition-{pp})<={ppc}'.format(pp=self.peakTime, ppc=self.peakPosCut))
+		self.cut0 += ro.TCut('peakTimeCut', 'abs(peakPosition-{pp})<={ppc}'.format(pp=self.peakTime, ppc=self.peakPosCut))
 
 	def FindPedestalPosition(self):
 		print 'Calculating position of pedestals...', ;sys.stdout.flush()
