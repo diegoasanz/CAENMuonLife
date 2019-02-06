@@ -128,6 +128,23 @@ def AddLineToStats(canvas, key, value=0, samplelinekey='Mean'):
 		lol.Add(line)
 		canvas.Modified()
 
+def GetMinimumBranch(tree, bra, cut=''):
+	tree.Draw('>>list{b}'.format(b=bra), cut)
+	event_list = ro.gDirectory.Get('list{v}'.format(v=bra))
+	tree.SetEventList(event_list)
+	val = tree.GetMinimum(bra)
+	tree.SetEventList(0)
+	event_list.Delete()
+	return val
+
+def GetMaximumBranch(tree, bra, cut=''):
+	tree.Draw('>>list{b}'.format(b=bra), cut)
+	event_list = ro.gDirectory.Get('list{v}'.format(v=bra))
+	tree.SetEventList(event_list)
+	val = tree.GetMaximum(bra)
+	tree.SetEventList(0)
+	event_list.Delete()
+	return val
 
 if __name__ == '__main__':
 	print 'blaaaa'

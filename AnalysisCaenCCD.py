@@ -57,7 +57,7 @@ class AnalysisCaenCCD:
 		self.doBadPedestalCut = True
 		self.badShapeCut = 2
 		self.doVetoedEventCut = True
-		self.peakTimeCut = 10e-9
+		self.peakTimeCut = 2e-9
 		self.currentCut = 10e-9
 
 		self.analysisTreeExisted = False
@@ -703,7 +703,7 @@ class AnalysisCaenCCD:
 		SetDefaultFitStats(self.histo[name], func)
 		self.peakTime = fit.Parameter(1)
 
-	def PlotSignal(self, name='signal', bins=0, cuts='', option='e', min=0, max=2.0):
+	def PlotSignal(self, name='signal', bins=0, cuts='', option='e', minx=0, maxx=2.0):
 		if self.bias >= 0:
 			plotvar = '-signal'
 			# vmax, vmin, deltav = -self.analysisTree.GetMinimum('signal'), -self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
@@ -714,10 +714,28 @@ class AnalysisCaenCCD:
 			# vmin, vmax, deltav = self.analysisTree.GetMinimum('signal'), self.analysisTree.GetMaximum('signal'), self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
 			deltav = self.signal_ch.offseted_adc_to_volts_cal['p1'] * 100
 			plotVarName = 'Signal [V]'
-		vmin, vmax = min, max
+		vmin, vmax = minx, maxx
 		deltav = deltav if bins == 0 else (vmax - vmin) / float(bins)
 		self.DrawHisto(name, vmin - deltav/2.0, vmax + deltav/2.0, deltav, plotvar, plotVarName, cuts, option)
 
+	def PlotPedestal(self, name='pedestal', bins=0, cuts='', option='e', minx=0, maxx=0):
+		vmin = minx if minx != 0 else GetMinimumBranch(self.analysisTree, 'pedestal', cuts)
+		vmax = maxx if maxx != 0 else GetMaximumBranch(self.analysisTree, 'pedestal', cuts)
+		deltax = (vmax - vmin) / 100.0 if bins == 0 else (vmax - vmin) / float(bins)
+		self.DrawHisto(name, vmin - deltax/2.0, vmax + deltax/2.0, deltax, 'pedestal', 'Pedestal[V]', cuts, option)
+		func = ro.TF1('fit_' + name, 'gaus', vmin, vmax)
+		func.SetNpx(1000)
+		mean_p, sigma_p = self.histo[name].GetMean(), self.histo[name].GetRMS()
+		vmin = min(vmin, mean_p - 4 * sigma_p)
+		vmax = max(vmin, mean_p + 4 * sigma_p)
+		width = max(abs(vmin), abs(vmax))
+		vmin, vmax = -width, width
+		fit = self.histo[name].Fit('fit_' + name, 'QEMS', '', mean_p - 2 * sigma_p, mean_p + 2 * sigma_p)
+		params = np.array((fit.Parameter(0), fit.Parameter(1), fit.Parameter(2)), 'float64')
+		func.SetParameters(params)
+		self.DrawHisto(name, vmin - deltax/2.0, vmax + deltax/2.0, deltax, 'pedestal', 'Pedestal[V]', cuts, option)
+		fit = self.histo[name].Fit('fit_' + name, 'QEMS', '', params[1] - 2 * params[2], params[1] + 2 * params[2])
+		SetDefaultFitStats(self.histo[name], func)
 
 	def PlotWaveforms(self, name='SignalWaveform', type='signal', vbins=0, cuts='', option='colz', start_ev=0, num_evs=0, do_logz=False):
 		var = 'voltageSignal' if 'signal' in type.lower() else 'voltageTrigger' if 'trig' in type.lower() else 'voltageVeto' if 'veto' in type.lower() else ''
@@ -736,11 +754,12 @@ class AnalysisCaenCCD:
 		if do_logz and 'goff' not in option:
 			self.canvas[name].SetLogz()
 
-	def PeakPositionStudy(self, xmin, xmax, deltax, peakTime_cut=20e-9, do_fit=True):
+	def PeakPositionStudy(self, xmin, xmax, deltax, pos_or_cut='pos', do_fit=True):
+		if not (pos_or_cut.lower().startswith('pos') or pos_or_cut.lower().startswith('cut')):
+			return 'pos_or_cut must be "pos" or "cut" to specify the type of analysis you want to do. Try again'
 		t0_vec = np.append(np.arange(xmin, xmax, deltax, dtype='float64'), xmax)
-		store_peakTime = 0
 		store_peakTimeCut = self.peakTimeCut
-		self.peakTimeCut = peakTime_cut
+		store_peakTime = 0
 		if self.peakTime:
 			store_peakTime = self.peakTime
 		else:
@@ -751,12 +770,16 @@ class AnalysisCaenCCD:
 		for index, t0 in np.ndenumerate(t0_vec):
 			self.ResetCut0()
 			self.CreateCut0()
-			self.peakTime = t0
+			if pos_or_cut.lower().startswith('pos'):
+				self.peakTime = t0
+			else:
+				self.peakTimeCut = t0
 			self.AddPeakPositionCut()
-			self.PlotWaveforms('SigWaveforms_{t}us'.format(t=t0 * 1e6), 'signal', cuts=self.cut0.GetTitle(), do_logz=True)
-			self.PlotSignal('PH_{t}us'.format(t=t0 * 1e6), cuts=self.cut0.GetTitle())
+			peakT, timeC = self.peakTime, self.peakTimeCut
+			self.PlotWaveforms('SigWFs_peak_{p:.3f}us_cut_{c:.3f}ns'.format(p=peakT * 1e6, c=timeC * 1e9), 'signal', cuts=self.cut0.GetTitle(), do_logz=True)
+			self.PlotSignal('PH_peak_{p:.3f}us_cut_{c:.3f}ns'.format(p=peakT * 1e6, c=timeC * 1e9), cuts=self.cut0.GetTitle())
 			if do_fit:
-				self.FitLanGaus('PH_{t}us'.format(t=t0 * 1e6))
+				self.FitLanGaus('PH_peak_{p:.3f}us_cut_{c:.3f}ns'.format(p=peakT * 1e6, c=timeC * 1e9))
 			self.utils.bar.update(index[0] + 1)
 		self.utils.bar.finish()
 		self.peakTimeCut = store_peakTimeCut
@@ -793,7 +816,6 @@ class AnalysisCaenCCD:
 				shutil.move('{o}/temp.root'.format(o=self.outDir), '{o}/{f}'.format(o=self.outDir, f=self.inputFile))
 				return
 		print 'The file was not cloned successfully :S. Check original tree and "temp.root"'
-
 
 	def PrintPlotLimits(self, ti=-5.12e-7, tf=4.606e-6, vmin=-0.7, vmax=0.05):
 		print np.double([(tf-ti)/float(self.settings.time_res) +1, ti-self.settings.time_res/2.0,
@@ -862,6 +884,7 @@ def main():
 		ana.canvas['SelectedWaveforms'].SetLogz()
 		ana.PlotSignal('PH', cuts=ana.cut0.GetTitle())
 		ana.FitLanGaus('PH')
+		ana.PlotPedestal('Pedestal', cuts=ana.cut0.GetTitle())
 		ana.SaveAllCanvas()
 	return ana
 

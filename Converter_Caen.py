@@ -62,7 +62,7 @@ class Converter_Caen:
 
 		self.trigger_search_window = 0.1e-6
 		self.veto_window_around_trigg = 50e-9
-		self.peak_pos_estimate = 2.115e-6
+		self.peak_pos_estimate = 2.131e-6
 		self.peak_pos_window = 0.5e-6
 
 		self.doVeto = True
