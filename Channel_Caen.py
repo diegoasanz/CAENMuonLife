@@ -17,11 +17,9 @@ import shutil
 
 
 class Channel_Caen:
-	def __init__(self, ch=3, ch_type='signal', verb=False):
+	def __init__(self, caen_ch=3, signal_number=0, trigger_ch=False, veto_ch=False):
 		self.ch = ch
 		self.type = ch_type
-		self.verb = verb
-
 		self.base_line_u_adcs = 0
 		self.sigma_adcs = 10
 		self.dc_offset_percent = 0
@@ -32,10 +30,11 @@ class Channel_Caen:
 		self.offseted_adc_to_volts_cal = {'p0': 0, 'p1': np.divide(2.15, 2.0**14 - 1.0, dtype='float64')}
 
 	def Set_Channel(self, settings):
+
 		if self.type == 'signal_ch':
 			self.edge = -int(settings.bias/abs(settings.bias)) if settings.bias != 0 else -1
 			self.Calculate_DC_Offset_Percentage(settings)
-			# Channels 3, 6 and 7 were calibrated with dc voltage and multimeter. The calibration files are on 20180419ch{X}/Runs
+			# Default channel calibration
 			if self.ch == 3:
 				# With negative bias, signals are positive. With positive bias, signals are negative
 				self.offseted_adc_to_volts_cal['p0'] = 0.035089408942074955 if settings.bias < 0 else -0.02328757136517118
@@ -59,6 +58,10 @@ class Channel_Caen:
 			self.thr_counts = settings.ac_thr_counts
 			self.Calculate_DC_Offset_Percentage(settings)
 			self.edge = -1
+
+	def Set_Ch_Calibration(self):
+		# enter individual channel calibrations if they are made
+		pass
 
 	def Calculate_DC_Offset_Percentage(self, settings):
 		if self.type == 'signal_ch':
