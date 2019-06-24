@@ -41,7 +41,7 @@ class CCD_Caen:
 		self.signal_ch.Set_Channel(self.settings)
 		self.trigger_ch = Channel_Caen(self.settings.trigCh, 'trigger_ch', self.verb)
 		self.trigger_ch.Set_Channel(self.settings)
-		self.veto_ch = Channel_Caen(self.settings.acCh, 'veto', self.verb)
+		self.veto_ch = Channel_Caen(self.settings.vetoCh, 'veto', self.verb)
 		self.veto_ch.Set_Channel(self.settings)
 
 		# declare extra variables that will be used

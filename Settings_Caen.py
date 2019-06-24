@@ -23,34 +23,26 @@ class Settings_Caen:
 		self.optlink = 1
 		self.node = 0
 		self.vme_b_addr = 32100000
+		self.use_usb = False
 		self.wavedump_path = '/usr/local/bin'
 		self.dig_bits = 14
 		self.points = 2560
 		self.post_trig_percent = 90
 		self.num_events = 10
 		self.time_calib = 300
-		self.dut = 'diamond'
-		self.bias = 0
+		self.test_name = 'diamond'
 		self.input_range = 2.15
-		self.calib_path = ''
 		self.simultaneous_conversion = False
 		self.plot_waveforms = False
 		self.random_test = False
 		self.time_res = 2e-9
-		self.do_hv_control = False
-		self.pics_folder_path = ''
-		self.hv_supply = ''
-		self.hv_ch = 0
-		self.current_limit = 0
-		self.hv_ramp = 10  # in V/s
-		self.hot_start = True
-		self.sigCh = 0
-		self.trigCh = 1
+		self.sigCh = {it: it for it in xrange(4)}
+		self.trigCh = 7
 		self.trig_base_line = -0.08
 		self.trig_thr_counts = 35
-		self.acCh = 2
-		self.ac_base_line = -0.08
-		self.ac_thr_counts = 15
+		self.vetoCh = 2
+		self.veto_base_line = -0.08
+		self.veto_thr_counts = 15
 		self.outdir = '.'
 		self.prefix = 'waves'
 		self.suffix = 'default'
@@ -58,17 +50,10 @@ class Settings_Caen:
 		self.UpdateSignalResolution()
 		self.filename = ''
 
-		self.fit_signal_vcal_params = np.array([-1.21888705e-04, -8.96215025e-01], dtype='f8')
-		self.fit_signal_vcal_params_errors = np.array([0.0001923, 0.00559264], dtype='f8')
-		self.fit_charge_signal_params = np.array([-1.65417060e+01, -1.35735246e+05], dtype='f8')
-		self.fit_charge_signal_params_errors = np.array([26.10228586,  847.0342207], dtype='f8')
-		self.fit_vcal_signal_params, self.fit_vcal_signal_params_errors = None, None
-		self.UpdateVcalVsSignal()
-
 		self.struct_fmt = '@{p}H'.format(p=self.points)
 		self.struct_len = struct.calcsize(self.struct_fmt)
 
-		self.hv_struct_fmt = '@IIIff' # struct for hv file: starting event is a uint, time in seconds is a uint, nanoseconds is a uint, voltage is float32, current is float32
+		self.hv_struct_fmt = '@IIIff'  # struct for hv file: starting event is a uint, time in seconds is a uint, nanoseconds is a uint, voltage is float32, current is float32
 		self.hv_struct_len = struct.calcsize(self.hv_struct_fmt)
 
 		self.bar = None
@@ -90,6 +75,10 @@ class Settings_Caen:
 					if parser.has_option('OPTILINK', 'wavedump_path'):
 						self.wavedump_path = parser.get('OPTILINK', 'wavedump_path')
 
+				if parser.has_option('USB'):
+					if parser.has_option('USB', 'use_usb'):
+						self.use_usb = parser.getboolean('USB', 'use_usb')
+
 				if parser.has_section('RUN'):
 					if parser.has_option('RUN', 'time'):
 						self.points = int(np.ceil(parser.getfloat('RUN', 'time') * 1.0e-6 / self.time_res))
@@ -101,8 +90,8 @@ class Settings_Caen:
 						self.num_events = parser.getint('RUN', 'num_events')
 					if parser.has_option('RUN', 'time_calib'):
 						self.time_calib = parser.getfloat('RUN', 'time_calib')
-					if parser.has_option('RUN', 'dut'):
-						self.dut = parser.get('RUN', 'dut').lower()
+					if parser.has_option('RUN', 'test_name'):
+						self.test_name = parser.get('RUN', 'test_name').lower()
 					if parser.has_option('RUN', 'sample_voltage'):
 						self.bias = parser.getfloat('RUN', 'sample_voltage')
 					if parser.has_option('RUN', 'input_range'):
@@ -147,11 +136,11 @@ class Settings_Caen:
 
 				if parser.has_section('ANTICOINCIDENCE'):
 					if parser.has_option('ANTICOINCIDENCE', 'channel'):
-						self.acCh = parser.getint('ANTICOINCIDENCE', 'channel')
+						self.vetoCh = parser.getint('ANTICOINCIDENCE', 'channel')
 					if parser.has_option('ANTICOINCIDENCE', 'base_line'):
-						self.ac_base_line = parser.getfloat('ANTICOINCIDENCE', 'base_line')
+						self.veto_base_line = parser.getfloat('ANTICOINCIDENCE', 'base_line')
 					if parser.has_option('ANTICOINCIDENCE', 'thr_counts'):
-						self.ac_thr_counts = parser.getint('ANTICOINCIDENCE', 'thr_counts')
+						self.veto_thr_counts = parser.getint('ANTICOINCIDENCE', 'thr_counts')
 
 				if parser.has_section('OUTPUT'):
 					if parser.has_option('OUTPUT', 'inDir'):
@@ -177,12 +166,6 @@ class Settings_Caen:
 				fit_charge_signal = tempf.Get('TFitResult-Charge_vs_Signal-q_sig_fit')
 				self.fit_signal_vcal_params = np.array(fit_signal_vcal.Parameters(), dtype='f8')
 				self.fit_charge_signal_params = np.array(fit_charge_signal.Parameters(), dtype='f8')
-				self.UpdateVcalVsSignal()
-
-	def UpdateVcalVsSignal(self):
-		self.fit_vcal_signal_params = np.array([np.divide(-self.fit_signal_vcal_params[0], self.fit_signal_vcal_params[1], dtype='f8'),
-		                                        np.divide(1.0, self.fit_signal_vcal_params[1], dtype='f8')], dtype='f8')
-		self.fit_vcal_signal_params_errors = np.array([np.sqrt((self.fit_signal_vcal_params_errors[0] / self.fit_signal_vcal_params[1])**2 + (self.fit_signal_vcal_params[0] * self.fit_signal_vcal_params_errors[1] / (self.fit_signal_vcal_params[1] ** 2))**2)], dtype='f8')
 
 	def SetOutputFiles(self):
 		def AddSuffix(string1):
@@ -192,7 +175,7 @@ class Settings_Caen:
 				string1 += '_{s}'.format(s=self.suffix)
 			return string1
 
-		self.filename = '{d}_{p}_ccd'.format(p=self.prefix, d=self.dut)
+		self.filename = '{d}_{p}_ccd'.format(p=self.prefix, d=self.test_name)
 		self.filename = AddSuffix(self.filename)
 
 		if not os.path.isdir(self.outdir):
@@ -260,7 +243,7 @@ class Settings_Caen:
 		print 'Moving binary files... ', ; sys.stdout.flush()
 		shutil.move('raw_wave{chs}.dat'.format(chs=self.sigCh), '{d}/Runs/{f}/{f}_signal.dat'.format(d=self.outdir, f=self.filename))
 		shutil.move('raw_wave{cht}.dat'.format(cht=self.trigCh), '{d}/Runs/{f}/{f}_trigger.dat'.format(d=self.outdir, f=self.filename))
-		shutil.move('raw_wave{cha}.dat'.format(cha=self.acCh), '{d}/Runs/{f}/{f}_veto.dat'.format(d=self.outdir, f=self.filename))
+		shutil.move('raw_wave{cha}.dat'.format(cha=self.vetoCh), '{d}/Runs/{f}/{f}_veto.dat'.format(d=self.outdir, f=self.filename))
 		self.RemoveBinaries()
 		print 'Done'
 
@@ -270,7 +253,7 @@ class Settings_Caen:
 		print 'Done'
 
 	def RemoveBinaries(self):
-		channels = [self.sigCh, self.trigCh, self.acCh]
+		channels = [self.sigCh, self.trigCh, self.vetoCh]
 		for ch in channels:
 			if os.path.isfile('wave{c}.dat'.format(c=ch)):
 				os.remove('wave{c}.dat'.format(c=ch))
