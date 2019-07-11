@@ -21,11 +21,10 @@ from Utils import *
 trig_rand_time = 0.2
 wait_time_hv = 7
 
-class CCD_Caen:
-	def __init__(self, infile='None', verbose=False, settingsObj=None):
-		print 'Starting CCD program ...'
+class MuonLifeTime:
+	def __init__(self, infile='None', settingsObj=None):
+		print 'Starting Muon Life Time program ...'
 		self.infile = infile
-		self.verb = verbose
 		if self.infile != 'None':
 			self.settings = Settings_Caen(self.infile)
 			self.settings.ReadInputFile()
@@ -36,34 +35,34 @@ class CCD_Caen:
 		self.settings.SetOutputFiles()
 
 		# Create channel objects for signal, trigger and veto
-		self.signal_ch = Channel_Caen(self.settings.sigCh, 'signal_ch', self.verb)
-		self.signal_ch.Set_Channel(self.settings)
-		self.trigger_ch = Channel_Caen(self.settings.trigCh, 'trigger_ch', self.verb)
+		self.signal_ch = {sigi: Channel_Caen(self.settings.sigCh[sigi], signal_number=sigi, is_trigger=False, is_veto=False) for sigi in xrange(self.settings.num_signals)}
+		for sigi in xrange(self.settings.num_signals):
+			self.signal_ch[sigi].Set_Channel(self.settings)
+		self.trigger_ch = Channel_Caen(self.settings.trigCh, signal_number=-1, is_trigger=True, is_veto=False)
 		self.trigger_ch.Set_Channel(self.settings)
-		self.veto_ch = Channel_Caen(self.settings.vetoCh, 'veto', self.verb)
+		self.veto_ch = Channel_Caen(self.settings.vetoCh, signal_number=-1, is_trigger=False, is_veto=True)
 		self.veto_ch.Set_Channel(self.settings)
 
 		# declare extra variables that will be used
-		self.fs0, self.ft0, self.fv0 = None, None, None
-		self.hv_control = None
+		self.fs0, self.ft0, self.fv0 = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
 		self.utils = Utils()
 		self.RemoveFiles()
 		self.t0, self.t1, self.t2 = None, None, None
 		self.p, self.pconv = None, None
 		self.total_events = 0
-		self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
-		self.total_events_sig, self.total_events_trig, self.total_events_veto = 0, 0, 0
-		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = 0, 0, 0
-		self.total_merged_data_sig, self.total_merged_data_trig, self.total_merged_data_veto = 0, 0, 0
+		self.written_events_sig, self.written_events_trig, self.written_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.total_events_sig, self.total_events_trig, self.total_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.total_merged_data_sig, self.total_merged_data_trig, self.total_merged_data_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
 		self.doMerge = False
 		self.min_measured_data = 0
 		self.min_data_to_write = 0
 		self.events_to_write = 0
 		self.read_size = 0
-		self.sig_written, self.trg_written, self.veto_written = 0, 0, 0
-		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = 0, 0, 0
-		self.fins, self.fint, self.finv = None, None, None
-		self.datas, self.datat, self.datav = None, None, None
+		self.sig_written, self.trg_written, self.veto_written = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.fins, self.fint, self.finv = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
+		self.datas, self.datat, self.datav = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
 
 	def RemoveFiles(self):
 		# used, for example, to remove old files that may have stayed due to crashes
@@ -97,7 +96,7 @@ class CCD_Caen:
 
 	def GetBaseLines(self):
 		self.settings.SetupDigitiser(doBaseLines=True, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch)
-		self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.settings.outdir)], bufsize=-1, stdin=subp.PIPE, close_fds=True)
+		self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.settings.outdir)], bufs0ize=-1, stdin=subp.PIPE, close_fds=True)
 		t0 = time.time()
 		self.CreateEmptyFiles()
 		self.CloseFiles()
@@ -110,17 +109,18 @@ class CCD_Caen:
 		del t0
 
 	def CreateEmptyFiles(self):
-		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), 'wb')
-		self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), 'wb')
-		self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), 'wb')
+		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'wb')
+		self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.caen_ch), 'wb')
+		for sigi in xrange(self.settings.num_signals):
+			self.fs0[sigi] = open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'wb')
 
 	def OpenFiles(self, mode='rb'):
 		if not self.fs0:
-			self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), mode)
+			self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.caen_ch), mode)
 		if not self.ft0:
-			self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), mode)
+			self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), mode)
 		if not self.fv0:
-			self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), mode)
+			self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.caen_ch), mode)
 
 	def CloseFiles(self):
 		if self.ft0:
@@ -128,16 +128,17 @@ class CCD_Caen:
 			if self.ft0.closed:
 				del self.ft0
 				self.ft0 = None
-		if self.fs0:
-			self.fs0.close()
-			if self.fs0.closed:
-				del self.fs0
-				self.fs0 = None
 		if self.fv0:
 			self.fv0.close()
 			if self.fv0.closed:
 				del self.fv0
 				self.fv0 = None
+		for sigi in xrange(self.settings.num_signals):
+			if self.fs0[sigi]:
+				self.fs0[sigi].close()
+				if self.fs0[sigi].closed:
+					del self.fs0[sigi]
+					self.fs0[sigi] = None
 
 	def GetWaveforms(self, events=1, stdin=False, stdout=False):
 		self.t1 = time.time()
@@ -394,14 +395,14 @@ class CCD_Caen:
 		if self.settings.simultaneous_conversion:
 			self.CreateRootFile(files_moved=False)
 		else:
-			self.settings.CreateProgressBar(self.settings.num_events)
-			self.settings.bar.start()
+			bar = CreateProgressBarUtils(self.settings.num_events)
+			bar.start()
 		self.settings.SetupDigitiser(doBaseLines=False, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch, events_written=self.total_events)
 		while self.total_events < self.settings.num_events:
 			self.sig_written = self.CalculateEventsWritten(self.signal_ch.ch)
 			self.trg_written = self.CalculateEventsWritten(self.trigger_ch.ch)
 			self.veto_written = self.CalculateEventsWritten(self.veto_ch.ch)
-			self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD.txt'.format(d=self.settings.outdir)], bufsize=-1, stdin=subp.PIPE, stdout=subp.PIPE, close_fds=True)
+			self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD.txt'.format(d=self.settings.outdir)], bufs0ize=-1, stdin=subp.PIPE, stdout=subp.PIPE, close_fds=True)
 			self.GetWaveforms(self.settings.num_events, stdin=True, stdout=True)
 		self.CloseFiles()
 		if not self.settings.simultaneous_conversion:
@@ -425,10 +426,11 @@ class CCD_Caen:
 
 	def SavePickles(self):
 		# save objects of settings, signal_ch, trigger_ch and veto_ch
-		with open('{d}/Runs/{f}/{f}.settings'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fs:
-			pickle.dump(self.settings, fs, pickle.HIGHEST_PROTOCOL)
-		with open('{d}/Runs/{f}/{f}.signal_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fsig:
-			pickle.dump(self.signal_ch, fsig, pickle.HIGHEST_PROTOCOL)
+		with open('{d}/Runs/{f}/{f}.settings'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fs0:
+			pickle.dump(self.settings, fs0, pickle.HIGHEST_PROTOCOL)
+		for sigi in xrange(self.settings.num_signals):
+			with open('{d}/Runs/{f}/{f}.signal_ch{c}'.format(c=sigi, d=self.settings.outdir, f=self.settings.filename), 'wb') as fs0ig:
+				pickle.dump(self.signal_ch[sigi], fs0ig, pickle.HIGHEST_PROTOCOL)
 		with open('{d}/Runs/{f}/{f}.trigger_ch'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as ft:
 			pickle.dump(self.trigger_ch, ft, pickle.HIGHEST_PROTOCOL)
 		with open('{d}/Runs/{f}/{f}.veto'.format(d=self.settings.outdir, f=self.settings.filename), 'wb') as fv:
@@ -442,29 +444,25 @@ def main():
 	parser = OptionParser()
 	parser.add_option('-i', '--infile', dest='infile', default='None', type='string',
 	                  help='Input configuration file. e.g. CAENCalibration.cfg')
-	parser.add_option('-v', '--verbose', dest='verb', default=False, help='Toggles verbose', action='store_true')
 	parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic conversion and analysis afterwards', action='store_true')
 
 	(options, args) = parser.parse_args()
 	infile = str(options.infile)
 	auto = bool(options.auto)
-	verb = bool(options.verb)
-	ccd = CCD_Caen(infile, verb)
+	mlt = MuonLifeTime(infile)
 	if auto:
-		ccd.StartHVControl()
-		ccd.GetBaseLines()
-		ccd.SavePickles()
-		written_events = ccd.GetData()
-		ccd.settings.num_events = written_events
-		ccd.SavePickles()  # update pickles with the real amount of written events
-		ccd.settings.MoveBinaryFiles()
-		ccd.settings.RenameDigitiserSettings()
-		ccd.CloseHVClient()
-		if not ccd.settings.simultaneous_conversion:
-			ccd.CreateRootFile(files_moved=True)
-			while ccd.pconv.poll() is None:
+		mlt.SavePickles()
+		written_events = mlt.GetData()
+		mlt.settings.num_events = written_events
+		mlt.SavePickles()  # update pickles with the real amount of written events
+		mlt.settings.MoveBinaryFiles()
+		mlt.settings.RenameDigitiserSettings()
+		mlt.CloseHVClient()
+		if not mlt.settings.simultaneous_conversion:
+			mlt.CreateRootFile(files_moved=True)
+			while mlt.pconv.poll() is None:
 				time.sleep(3)
-			ccd.CloseSubprocess('converter', stdin=False, stdout=False)
+			mlt.CloseSubprocess('converter', stdin=False, stdout=False)
 
 	print 'Finished :)'
 	sys.stdout.write('\a\a\a')

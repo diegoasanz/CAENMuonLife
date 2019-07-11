@@ -146,6 +146,27 @@ def GetMaximumBranch(tree, bra, cut=''):
 	event_list.Delete()
 	return val
 
+def RoundInt(n, nptype='int32'):
+	val = np.floor(np.add(n, 0.5, dtype='f8'), dtype='f8').astype(nptype)
+	if nptype.lower().startswith('i'):
+		return int(val)
+	elif nptype.lower().startswith('f'):
+		return float(val)
+	return val
+
+def CreateProgressBarUtils(maxVal=1):
+	widgets = [
+		'Processed: ', progressbar.Counter(),
+		' out of {mv} '.format(mv=maxVal), progressbar.Percentage(),
+		' ', progressbar.Bar(marker='>'),
+		' ', progressbar.Timer(),
+		' ', progressbar.ETA()
+		# ' ', progressbar.AdaptativeETA(),
+		#  ' ', progressbar.AdaptativeTransferSpeed()
+	]
+	bar = progressbar.ProgressBar(widgets=widgets, maxval=maxVal)
+	return bar
+
 if __name__ == '__main__':
 	print 'blaaaa'
 

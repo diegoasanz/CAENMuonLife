@@ -13,36 +13,43 @@ import subprocess as subp
 import struct
 import ROOT as ro
 import shutil
+from Utils import *
 # from DataAcquisition import DataAcquisition
 
 
 class Settings_Caen:
-	def __init__(self, infile='None', verbose=False):
+	def __init__(self, infile='None'):
 		self.infile = infile
-		self.verb = verbose
-		self.optlink = 1
-		self.node = 0
-		self.vme_b_addr = 32100000
+		self.optlink = None
+		self.node = None
+		self.vme_b_addr = None
 		self.use_usb = False
 		self.wavedump_path = '/usr/local/bin'
+		self.data_format = 'binary'
 		self.dig_bits = 14
-		self.points = 2560
-		self.post_trig_percent = 90
+		self.points = 10240
+		self.post_trig_percent = 95
 		self.num_events = 10
 		self.time_calib = 300
-		self.test_name = 'diamond'
-		self.input_range = 2.15
+		self.test_name = 'muon_test_1'
+		self.input_range = 2.0
 		self.simultaneous_conversion = False
 		self.plot_waveforms = False
 		self.random_test = False
 		self.time_res = 2e-9
-		self.sigCh = {it: it for it in xrange(4)}
+		self.num_signals = 1
+		self.sigCh = {}
+		self.sig_thr = {}
+		self.sig_polarity = {}
+		self.sig_offset = {}
 		self.trigCh = 7
-		self.trig_base_line = -0.08
-		self.trig_thr_counts = 35
 		self.vetoCh = 2
-		self.veto_base_line = -0.08
-		self.veto_thr_counts = 15
+		self.trig_polarity = -1
+		self.veto_polarity = -1
+		self.trig_thr = -0.1
+		self.veto_thr = -0.1
+		self.trig_offset = -45
+		self.veto_offset = -45
 		self.outdir = '.'
 		self.prefix = 'waves'
 		self.suffix = 'default'
@@ -52,11 +59,6 @@ class Settings_Caen:
 
 		self.struct_fmt = '@{p}H'.format(p=self.points)
 		self.struct_len = struct.calcsize(self.struct_fmt)
-
-		self.hv_struct_fmt = '@IIIff'  # struct for hv file: starting event is a uint, time in seconds is a uint, nanoseconds is a uint, voltage is float32, current is float32
-		self.hv_struct_len = struct.calcsize(self.hv_struct_fmt)
-
-		self.bar = None
 
 	def ReadInputFile(self):
 		parser = ConfigParser()
@@ -78,8 +80,14 @@ class Settings_Caen:
 				if parser.has_option('USB'):
 					if parser.has_option('USB', 'use_usb'):
 						self.use_usb = parser.getboolean('USB', 'use_usb')
+					if parser.has_option('USB', 'wavedump_path'):
+						self.wavedump_path = parser.get('USB', 'wavedump_path')
 
 				if parser.has_section('RUN'):
+					if parser.has_option('RUN', 'format'):
+						self.data_format = parser.get('RUN', 'format').lower()
+						if self.data_format not in ['binary', 'ascii']:
+							ExitMessage('The format for the digitiser should be "binary" or "ascii"')
 					if parser.has_option('RUN', 'time'):
 						self.points = int(np.ceil(parser.getfloat('RUN', 'time') * 1.0e-6 / self.time_res))
 						self.struct_fmt = '@{p}H'.format(p=self.points)
@@ -92,12 +100,8 @@ class Settings_Caen:
 						self.time_calib = parser.getfloat('RUN', 'time_calib')
 					if parser.has_option('RUN', 'test_name'):
 						self.test_name = parser.get('RUN', 'test_name').lower()
-					if parser.has_option('RUN', 'sample_voltage'):
-						self.bias = parser.getfloat('RUN', 'sample_voltage')
 					if parser.has_option('RUN', 'input_range'):
 						self.input_range = parser.getfloat('RUN', 'input_range')
-					if parser.has_option('RUN', 'calib_path'):
-						self.calib_path = parser.get('RUN', 'calib_path')
 					if parser.has_option('RUN', 'simultaneous_conversion'):
 						self.simultaneous_conversion = bool(parser.getboolean('RUN', 'simultaneous_conversion'))
 					if parser.has_option('RUN', 'plot_waveforms'):
@@ -105,42 +109,60 @@ class Settings_Caen:
 					if parser.has_option('RUN', 'random_test'):
 						self.random_test = bool(parser.getboolean('RUN', 'random_test'))
 
-				if parser.has_section('HV'):
-					if parser.has_option('HV', 'path_Pics_folder'):
-						self.pics_folder_path = parser.get('HV', 'path_Pics_folder')
-					if parser.has_option('HV', 'HV_supply'):
-						self.hv_supply = parser.get('HV', 'HV_supply')
-						if self.hv_supply != '':
-							self.do_hv_control = True
-					if parser.has_option('HV', 'ch'):
-						self.hv_ch = parser.getint('HV', 'ch')
-					if parser.has_option('HV', 'current_limit'):
-						self.current_limit = abs(parser.getfloat('HV', 'current_limit'))
-					if parser.has_option('HV', 'ramp'):
-						self.hv_ramp = abs(parser.getfloat('HV', 'ramp'))
-					# TODO: implement option in HV_control for option hot_start = False
-					# if parser.has_option('HV', 'hot_start'):
-					# 	self.hot_start = bool(parser.getboolean('HV', 'hot_start'))
+				if parser.has_section('SIGNALS'):
+					if parser.has_option('SIGNALS', 'number'):
+						self.num_signals = parser.getint('SIGNALS', 'number')
 
-				if parser.has_section('SIGNAL'):
-					if parser.has_option('SIGNAL', 'channel'):
-						self.sigCh = parser.getint('SIGNAL', 'channel')
+				for sigi in xrange(self.num_signals):
+					if parser.has_section('SIGNAL'+str(sigi)):
+						if parser.has_option('SIGNAL'+str(sigi), 'caen_channel'):
+							self.sigCh[sigi] = parser.getint('SIGNAL'+str(sigi), 'caen_channel')
+						else:
+							ExitMessage('Signal ' + str(sigi) + ' does not have a "caen_channel". Specify it under SIGNAL' + str(sigi), os.EX_CONFIG)
+						if parser.has_option('SIGNAL'+str(sigi), 'polarity'):
+							self.sig_polarity[sigi] = int(np.sign(parser.getfloat('SIGNAL'+str(sigi), 'polarity')))
+						else:
+							self.sig_polarity[sigi] = -1
+						if parser.has_option('SIGNAL'+str(sigi), 'threshold'):
+							self.sig_thr[sigi] = parser.getfloat('SIGNAL' + str(sigi), 'threshold')
+						else:
+							self.sig_thr[sigi] = 0.1 * self.sig_polarity[sigi]
+						if parser.has_option('SIGNAL' + str(sigi), 'dc_offset'):
+							self.sig_offset[sigi] = parser.getint('SIGNAL' + str(sigi), 'dc_offset')
+						else:
+							self.sig_offset[sigi] = self.sig_polarity[sigi] * 45
 
 				if parser.has_section('TRIGGER'):
-					if parser.has_option('TRIGGER', 'channel'):
-						self.trigCh = parser.getint('TRIGGER', 'channel')
-					if parser.has_option('TRIGGER', 'base_line'):
-						self.trig_base_line = parser.getfloat('TRIGGER', 'base_line')
-					if parser.has_option('TRIGGER', 'thr_counts'):
-						self.trig_thr_counts = parser.getint('TRIGGER', 'thr_counts')
+					if parser.has_option('TRIGGER', 'caen_channel'):
+						self.trigCh = parser.getint('TRIGGER', 'caen_channel')
+					if parser.has_option('TRIGGER', 'polarity'):
+						self.trig_polarity = int(np.sign(parser.getfloat('TRIGGER', 'polarity')))
+					else:
+						self.trig_polarity = -1
+					if parser.has_option('TRIGGER', 'threshold'):
+						self.trig_thr = parser.getfloat('TRIGGER', 'threshold')
+					else:
+						self.trig_thr = self.trig_polarity * 0.1
+					if parser.has_option('TRIGGER', 'dc_offset'):
+						self.trig_offset = parser.getint('TRIGGER', 'dc_offset')
+					else:
+						self.trig_offset = self.trig_polarity * 45
 
-				if parser.has_section('ANTICOINCIDENCE'):
-					if parser.has_option('ANTICOINCIDENCE', 'channel'):
-						self.vetoCh = parser.getint('ANTICOINCIDENCE', 'channel')
-					if parser.has_option('ANTICOINCIDENCE', 'base_line'):
-						self.veto_base_line = parser.getfloat('ANTICOINCIDENCE', 'base_line')
-					if parser.has_option('ANTICOINCIDENCE', 'thr_counts'):
-						self.veto_thr_counts = parser.getint('ANTICOINCIDENCE', 'thr_counts')
+				if parser.has_section('VETO'):
+					if parser.has_option('VETO', 'caen_channel'):
+						self.vetoCh = parser.getint('VETO', 'caen_channel')
+					if parser.has_option('VETO', 'polarity'):
+						self.veto_polarity = int(np.sign(parser.getfloat('VETO', 'polarity')))
+					else:
+						self.veto_polarity = -1
+					if parser.has_option('VETO', 'thr_counts'):
+						self.veto_thr = parser.getfloat('VETO', 'threshold')
+					else:
+						self.veto_thr = self.veto_polarity * 0.1
+					if parser.has_option('VETO', 'dc_offset'):
+						self.veto_offset = parser.getint('VETO', 'dc_offset')
+					else:
+						self.veto_offset = self.veto_polarity * 45
 
 				if parser.has_section('OUTPUT'):
 					if parser.has_option('OUTPUT', 'inDir'):
@@ -154,28 +176,14 @@ class Settings_Caen:
 				self.UpdateSignalResolution()
 
 	def UpdateSignalResolution(self):
-		self.sigRes = np.double(np.divide(np.double(self.input_range), (np.power(2.0, 14.0, dtype='f8') - 1)))
-
-	def Get_Calibration_Constants(self):
-		if self.calib_path == '':
-			pass
-		else:
-			if os.path.isfile(self.calib_path):
-				tempf = ro.TFile(self.calib_path, 'READ')
-				fit_signal_vcal = tempf.Get('TFitResult-Signal_vs_Vcal-sig_vcal_fit')
-				fit_charge_signal = tempf.Get('TFitResult-Charge_vs_Signal-q_sig_fit')
-				self.fit_signal_vcal_params = np.array(fit_signal_vcal.Parameters(), dtype='f8')
-				self.fit_charge_signal_params = np.array(fit_charge_signal.Parameters(), dtype='f8')
+		self.sigRes = np.divide(self.input_range, np.subtract(np.power(2, self.dig_bits, dtype='f16'), 1, dtype='f16'), dtype='f16')
 
 	def SetOutputFiles(self):
 		def AddSuffix(string1):
-			string1 += '_Pos' if self.bias >= 0 else '_Neg'
-			string1 += '_{b}V'.format(b=abs(self.bias))
 			if self.suffix != '':
 				string1 += '_{s}'.format(s=self.suffix)
 			return string1
-
-		self.filename = '{d}_{p}_ccd'.format(p=self.prefix, d=self.test_name)
+		self.filename = '{d}_{p}'.format(p=self.prefix, d=self.test_name) if self.prefix != '' else self.test_name
 		self.filename = AddSuffix(self.filename)
 
 		if not os.path.isdir(self.outdir):
@@ -186,7 +194,7 @@ class Settings_Caen:
 			os.makedirs('{d}/Runs/{f}'.format(d=self.outdir, f=self.filename))
 
 	def SetupDigitiser(self, doBaseLines=False, signal=None, trigger=None, ac=None, events_written=0):
-		print 'Creating digitiser CAEN V1730D configuration file... ', ; sys.stdout.flush()
+		print 'Creating digitiser CAEN DT5730 configuration file... ', ; sys.stdout.flush()
 		name_dest = '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.outdir) if doBaseLines else '{d}/WaveDumpConfig_CCD.txt'.format(d=self.outdir)
 
 		sig_polarity = 'POSITIVE' if self.bias < 0 else 'NEGATIVE'
