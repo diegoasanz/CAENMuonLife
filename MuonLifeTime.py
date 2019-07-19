@@ -44,25 +44,25 @@ class MuonLifeTime:
 		self.veto_ch.Set_Channel(self.settings)
 
 		# declare extra variables that will be used
-		self.fs0, self.ft0, self.fv0 = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
+		self.fs0, self.ft0, self.fv0 = None, None, None
 		self.utils = Utils()
 		self.RemoveFiles()
 		self.t0, self.t1, self.t2 = None, None, None
 		self.p, self.pconv = None, None
 		self.total_events = 0
-		self.written_events_sig, self.written_events_trig, self.written_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
-		self.total_events_sig, self.total_events_trig, self.total_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
-		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
-		self.total_merged_data_sig, self.total_merged_data_trig, self.total_merged_data_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
+		self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
+		self.total_events_sig, self.total_events_trig, self.total_events_veto = 0, 0, 0
+		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = 0, 0, 0
+		self.total_merged_data_sig, self.total_merged_data_trig, self.total_merged_data_veto = 0, 0, 0
 		self.doMerge = False
 		self.min_measured_data = 0
 		self.min_data_to_write = 0
 		self.events_to_write = 0
 		self.read_size = 0
-		self.sig_written, self.trg_written, self.veto_written = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
-		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = {sigi: 0 for sigi in xrange(self.settings.num_signals)}, 0, 0
-		self.fins, self.fint, self.finv = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
-		self.datas, self.datat, self.datav = {sigi: None for sigi in xrange(self.settings.num_signals)}, None, None
+		self.sig_written, self.trg_written, self.veto_written = 0, 0, 0
+		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = 0, 0, 0
+		self.fins, self.fint, self.finv = None, None, None
+		self.datas, self.datat, self.datav = None, None, None
 
 	def RemoveFiles(self):
 		# used, for example, to remove old files that may have stayed due to crashes
@@ -94,20 +94,6 @@ class MuonLifeTime:
 			print 'Done'
 			self.hv_control.CheckVoltage()
 
-	def GetBaseLines(self):
-		self.settings.SetupDigitiser(doBaseLines=True, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch)
-		self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.settings.outdir)], bufs0ize=-1, stdin=subp.PIPE, close_fds=True)
-		t0 = time.time()
-		self.CreateEmptyFiles()
-		self.CloseFiles()
-		self.GetWaveforms(events=1, stdin=True, stdout=False)
-		if self.total_events >= 1:
-			self.ReadBaseLines()
-			self.settings.RemoveBinaries()
-			self.RemoveFiles()
-		print 'Time getting base lines: {t} seconds'.format(t=(time.time() - t0))
-		del t0
-
 	def CreateEmptyFiles(self):
 		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'wb')
 		self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.caen_ch), 'wb')
@@ -133,102 +119,98 @@ class MuonLifeTime:
 			if self.fv0.closed:
 				del self.fv0
 				self.fv0 = None
-		for sigi in xrange(self.settings.num_signals):
-			if self.fs0[sigi]:
-				self.fs0[sigi].close()
-				if self.fs0[sigi].closed:
-					del self.fs0[sigi]
-					self.fs0[sigi] = None
+		if self.fs0:
+			self.fs0.close()
+			if self.fs0.closed:
+				del self.fs0
+				self.fs0 = None
 
 	def GetWaveforms(self, events=1, stdin=False, stdout=False):
 		self.t1 = time.time()
 		# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-		if events == 1:
-			# while self.p.poll() is None:
-			time.sleep(1)
-			self.p.stdin.write('c')
+		# if events == 1:
+		# 	# while self.p.poll() is None:
+		# 	time.sleep(1)
+		# 	self.p.stdin.write('c')
+		# 	self.p.stdin.flush()
+		# 	time.sleep(1)
+		# 	self.p.stdin.write('s')
+		# 	self.p.stdin.flush()
+		# 	if self.settings.plot_waveforms:
+		# 		# time.sleep(1)
+		# 		self.p.stdin.write('P')
+		# 		self.p.stdin.flush()
+		# 	# time.sleep(1)
+		# 	self.p.stdin.write('w')
+		# 	self.p.stdin.flush()
+		# 	# time.sleep(1)
+		# 	self.p.stdin.write('t')
+		# 	self.p.stdin.flush()
+		# 	time.sleep(1)
+		# 	self.p.stdin.write('s')
+		# 	self.p.stdin.flush()
+		# 	time.sleep(1)
+		# 	self.p.stdin.write('q')
+		# 	self.p.stdin.flush()
+		# 	while self.p.poll() is None:
+		# 		continue
+		# 	if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
+		# 	self.ConcatenateBinaries()
+		# 	self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
+		# 	self.settings.RemoveBinaries()
+		# else:
+		time.sleep(1)
+		self.p.stdin.write('c')
+		self.p.stdin.flush()
+		time.sleep(1)
+		self.p.stdin.write('W')
+		self.p.stdin.flush()
+		if self.settings.plot_waveforms:
+			# time.sleep(1)
+			self.p.stdin.write('P')
 			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			if self.settings.plot_waveforms:
-				# time.sleep(1)
-				self.p.stdin.write('P')
+		# time.sleep(1)
+		self.p.stdin.write('s')
+		self.p.stdin.flush()
+		self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
+		# time.sleep(1)
+		self.t2 = time.time()
+		while self.p.poll() is None:
+			if time.time() - self.t1 >= self.settings.time_calib:
+				self.p.stdin.write('s')
 				self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('w')
-			self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('t')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('q')
-			self.p.stdin.flush()
-			while self.p.poll() is None:
-				continue
-			if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-			self.ConcatenateBinaries()
-			self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
-			self.settings.RemoveBinaries()
-		else:
-			time.sleep(1)
-			self.p.stdin.write('c')
-			self.p.stdin.flush()
-			time.sleep(1)
-			self.p.stdin.write('W')
-			self.p.stdin.flush()
-			if self.settings.plot_waveforms:
-				# time.sleep(1)
-				self.p.stdin.write('P')
+				self.settings.RemoveBinaries()
+				self.p.stdin.write('c')
 				self.p.stdin.flush()
-			# time.sleep(1)
-			self.p.stdin.write('s')
-			self.p.stdin.flush()
-			self.written_events_sig, self.written_events_trig, self.written_events_veto = 0, 0, 0
-			# time.sleep(1)
-			self.t2 = time.time()
-			while self.p.poll() is None:
-				if time.time() - self.t1 >= self.settings.time_calib:
-					self.p.stdin.write('s')
-					self.p.stdin.flush()
-					self.settings.RemoveBinaries()
-					self.p.stdin.write('c')
-					self.p.stdin.flush()
-					self.p.stdin.write('q')
-					self.p.stdin.flush()
-					time.sleep(1)
-					# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-				elif self.written_events_sig + self.sig_written >= events:
-					self.p.stdin.write('s')
-					self.p.stdin.flush()
-					self.settings.RemoveBinaries()
-					self.p.stdin.write('q')
-					self.p.stdin.flush()
-					time.sleep(1)
-					# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
-				else:
-					if self.settings.random_test and (time.time() - self.t2 > trig_rand_time):
-						self.p.stdin.write('t')
-						self.p.stdin.flush()
-						self.t2 = time.time()
-					self.ConcatenateBinaries()
-					if self.settings.do_hv_control:
-						self.hv_control.UpdateHVFile(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-					if not self.settings.simultaneous_conversion:
-						self.settings.bar.update(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-			del self.t1
-			self.t1 = None
-			self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
-			time.sleep(1)
-			del self.t2
-			self.t2 = None
-			if self.settings.do_hv_control: self.hv_control.UpdateHVFile(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
-		self.total_events_sig = self.CalculateEventsWritten(self.signal_ch.ch)
-		self.total_events_trig = self.CalculateEventsWritten(self.trigger_ch.ch)
-		self.total_events_veto = self.CalculateEventsWritten(self.veto_ch.ch)
+				self.p.stdin.write('q')
+				self.p.stdin.flush()
+				time.sleep(1)
+				# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
+			elif self.written_events_sig + self.sig_written >= events:
+				self.p.stdin.write('s')
+				self.p.stdin.flush()
+				self.settings.RemoveBinaries()
+				self.p.stdin.write('q')
+				self.p.stdin.flush()
+				time.sleep(1)
+				# if self.settings.do_hv_control: self.hv_control.UpdateHVFile()
+			else:
+				# if self.settings.random_test and (time.time() - self.t2 > trig_rand_time):
+				# 	self.p.stdin.write('t')
+				# 	self.p.stdin.flush()
+				# 	self.t2 = time.time()
+				self.ConcatenateBinaries()
+				if not self.settings.simultaneous_conversion:
+					self.settings.bar.update(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
+		del self.t1
+		self.t1 = None
+		self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
+		time.sleep(1)
+		del self.t2
+		self.t2 = None
+		self.total_events_sig = self.CalculateEventsWritten(self.settings.sigCh[0])
+		self.total_events_trig = self.CalculateEventsWritten(self.settings.trigCh)
+		self.total_events_veto = self.CalculateEventsWritten(self.settings.vetoCh)
 		if self.total_events_sig == self.total_events_trig and self.total_events_sig == self.total_events_veto:
 			self.total_events = self.total_events_sig
 		else:
@@ -278,14 +260,22 @@ class MuonLifeTime:
 
 	def ConcatenateBinaries(self):
 		self.session_measured_data_sig, self.session_measured_data_trig, self.session_measured_data_veto = 0, 0, 0
-		if os.path.isfile('wave{s}.dat'.format(s=self.signal_ch.ch)) and os.path.isfile('wave{t}.dat'.format(t=self.trigger_ch.ch)) and os.path.isfile('wave{a}.dat'.format(a=self.veto_ch.ch)):
-			self.session_measured_data_sig = int(os.path.getsize('wave{s}.dat'.format(s=self.signal_ch.ch)))
-			self.session_measured_data_trig = int(os.path.getsize('wave{t}.dat'.format(t=self.trigger_ch.ch)))
-			self.session_measured_data_veto = int(os.path.getsize('wave{a}.dat'.format(a=self.veto_ch.ch)))
+		data_channels = self.settings.sigCh.values() + [self.settings.trigCh] + [self.settings.vetoCh]
+		data_files = ['wave{s}.dat'.format(s=ch) for ch in data_channels]
+		bool_cont = True
+		for data_file in data_files:
+			if not os.path.isfile(data_file):
+				bool_cont = False
+		if bool_cont:
+			self.session_measured_data_sig = int(os.path.getsize('wave{s}.dat'.format(s=self.settings.sigCh[0])))
+			self.session_measured_data_trig = int(os.path.getsize('wave{t}.dat'.format(t=self.settings.trigCh)))
+			self.session_measured_data_veto = int(os.path.getsize('wave{a}.dat'.format(a=self.settings.vetoCh)))
+		else:
+			ExitMessage('Stop!!! something is wrooong!!!!', os.EX_DATAERR)
 
-		self.total_merged_data_sig = int(os.path.getsize('raw_wave{s}.dat'.format(s=self.signal_ch.ch)))
-		self.total_merged_data_trig = int(os.path.getsize('raw_wave{t}.dat'.format(t=self.trigger_ch.ch)))
-		self.total_merged_data_veto = int(os.path.getsize('raw_wave{a}.dat'.format(a=self.veto_ch.ch)))
+		self.total_merged_data_sig = int(os.path.getsize('raw_wave{s}.dat'.format(s=self.settings.sigCh[0])))
+		self.total_merged_data_trig = int(os.path.getsize('raw_wave{t}.dat'.format(t=self.settings.trigCh)))
+		self.total_merged_data_veto = int(os.path.getsize('raw_wave{a}.dat'.format(a=self.settings.vetoCh)))
 		self.doMerge = (self.session_measured_data_sig + self.sig_written * self.settings.struct_len > self.total_merged_data_sig) and (self.session_measured_data_trig + self.trg_written * self.settings.struct_len > self.total_merged_data_trig) and (self.session_measured_data_veto + self.veto_written * self.settings.struct_len > self.total_merged_data_veto)
 		if self.doMerge:
 			# self.OpenFiles(mode='ab')
@@ -298,34 +288,36 @@ class MuonLifeTime:
 			self.events_to_write = int(np.floor(self.min_data_to_write / float(self.settings.struct_len)))
 			self.read_size = self.events_to_write * self.settings.struct_len
 
-			with open('wave{s}.dat'.format(s=self.signal_ch.ch), 'rb') as self.fins:
-				self.fins.seek(self.written_events_sig * self.settings.struct_len, 0)
-				self.datas = self.fins.read(self.read_size)
-			del self.fins
-			self.fins = None
-			with open('raw_wave{s}.dat'.format(s=self.signal_ch.ch), 'ab') as self.fs0:
-				self.fs0.write(self.datas)
-				self.fs0.flush()
-			del self.fs0, self.datas
-			self.fs0, self.datas = None, None
+			for sigi in xrange(self.settings.num_signals):
+				with open('wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'rb') as self.fins:
+					self.fins.seek(self.written_events_sig * self.settings.struct_len, 0)
+					self.datas = self.fins.read(self.read_size)
+				del self.fins
+				self.fins = None
 
-			with open('wave{t}.dat'.format(t=self.trigger_ch.ch), 'rb') as self.fint:
+				with open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'ab') as self.fs0:
+					self.fs0.write(self.datas)
+					self.fs0.flush()
+				del self.fs0, self.datas
+				self.fs0, self.datas = None, None
+
+			with open('wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'rb') as self.fint:
 				self.fint.seek(self.written_events_trig * self.settings.struct_len, 0)
 				self.datat = self.fint.read(self.read_size)
 			del self.fint
 			self.fint = None
-			with open('raw_wave{t}.dat'.format(t=self.trigger_ch.ch), 'ab') as self.ft0:
+			with open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'ab') as self.ft0:
 				self.ft0.write(self.datat)
 				self.ft0.flush()
 			del self.ft0, self.datat
 			self.ft0, self.datat = None, None
 
-			with open('wave{a}.dat'.format(a=self.veto_ch.ch), 'rb') as self.finv:
+			with open('wave{a}.dat'.format(a=self.veto_ch.caen_ch), 'rb') as self.finv:
 				self.finv.seek(self.written_events_veto * self.settings.struct_len, 0)
 				self.datav = self.finv.read(self.read_size)
 			del self.finv
 			self.finv = None
-			with open('raw_wave{a}.dat'.format(a=self.veto_ch.ch), 'ab') as self.fv0:
+			with open('raw_wave{a}.dat'.format(a=self.veto_ch.caen_ch), 'ab') as self.fv0:
 				self.fv0.write(self.datav)
 				self.fv0.flush()
 			del self.fv0, self.datav
@@ -397,12 +389,12 @@ class MuonLifeTime:
 		else:
 			bar = CreateProgressBarUtils(self.settings.num_events)
 			bar.start()
-		self.settings.SetupDigitiser(doBaseLines=False, signal=self.signal_ch, trigger=self.trigger_ch, ac=self.veto_ch, events_written=self.total_events)
+		self.settings.SetupDigitiser(signal=self.signal_ch, trigger=self.trigger_ch, veto=self.veto_ch)
 		while self.total_events < self.settings.num_events:
-			self.sig_written = self.CalculateEventsWritten(self.signal_ch.ch)
-			self.trg_written = self.CalculateEventsWritten(self.trigger_ch.ch)
-			self.veto_written = self.CalculateEventsWritten(self.veto_ch.ch)
-			self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_CCD.txt'.format(d=self.settings.outdir)], bufs0ize=-1, stdin=subp.PIPE, stdout=subp.PIPE, close_fds=True)
+			self.sig_written = self.CalculateEventsWritten(self.settings.sigCh[0])
+			self.trg_written = self.CalculateEventsWritten(self.settings.trigCh)
+			self.veto_written = self.CalculateEventsWritten(self.settings.vetoCh)
+			self.p = subp.Popen(['{p}/wavedump'.format(p=self.settings.wavedump_path), '{d}/WaveDumpConfig_muon.txt'.format(d=self.settings.outdir)], bufsize=-1, stdin=subp.PIPE, stdout=subp.PIPE, close_fds=True)
 			self.GetWaveforms(self.settings.num_events, stdin=True, stdout=True)
 		self.CloseFiles()
 		if not self.settings.simultaneous_conversion:
@@ -419,10 +411,6 @@ class MuonLifeTime:
 		data_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}'.format(f=self.settings.filename)) if files_moved else os.getcwd()
 		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path, data_bin_path], close_fds=True)
 		del settings_bin_path
-
-	def CloseHVClient(self):
-		if self.settings.do_hv_control:
-			self.hv_control.CloseClient()
 
 	def SavePickles(self):
 		# save objects of settings, signal_ch, trigger_ch and veto_ch

@@ -193,20 +193,29 @@ class Settings_Caen:
 		if not os.path.isdir('{d}/Runs/{f}'.format(d=self.outdir, f=self.filename)):
 			os.makedirs('{d}/Runs/{f}'.format(d=self.outdir, f=self.filename))
 
-	def SetupDigitiser(self, doBaseLines=False, signal=None, trigger=None, ac=None, events_written=0):
+	def SetupDigitiser(self, signal=None, trigger=None, veto=None):
 		print 'Creating digitiser CAEN DT5730 configuration file... ', ; sys.stdout.flush()
-		name_dest = '{d}/WaveDumpConfig_CCD_BL.txt'.format(d=self.outdir) if doBaseLines else '{d}/WaveDumpConfig_CCD.txt'.format(d=self.outdir)
+		name_dest = '{d}/WaveDumpConfig_muon.txt'.format(d=self.outdir)
 
-		sig_polarity = 'POSITIVE' if self.bias < 0 else 'NEGATIVE'
 		cont = True
-		with open('default/WaveDumpConfig_CCD.txt', 'r') as source_file:
+		with open('default/WaveDumpConfig_muon.txt', 'r') as source_file:
 			with open(name_dest, 'w') as dest_file:
 				for line in source_file:
 					if cont:
 						if line.startswith('OPEN PCI'):
-							dest_file.write('OPEN PCI {ol} {n} {ba}\n'.format(ol=int(self.optlink), n=int(self.node), ba=int(self.vme_b_addr)))
+							if not self.use_usb:
+								dest_file.write('OPEN PCI {ol} {n} {ba}\n'.format(ol=int(self.optlink), n=int(self.node), ba=int(self.vme_b_addr)))
+							else:
+								dest_file.write('#OPEN PCI 1 0 32100000\n')
+						elif line.startswith('OPEN USB'):
+							if self.use_usb:
+								dest_file.write('OPEN USB 0 0\n')
+							else:
+								dest_file.write('#OPEN USB 0 0\n')
+						elif line.startswith('OUTPUT_FILE_FORMAT'):
+							dest_file.write('OUTPUT_FILE_FORMAT\t{f}\n'.format(f=self.data_format.upper()))
 						elif line.startswith('RECORD_LENGTH'):
-							dest_file.write('RECORD_LENGTH\t{p}\n'.format(p=int(self.points)))
+							dest_file.write('RECORD_LENGTH\t{p}\n'.format(p=int(RoundInt(self.points))))
 						elif line.startswith('POST_TRIGGER'):
 							dest_file.write('POST_TRIGGER\t{pt}\n'.format(pt=int(round(self.post_trig_percent*0.9996 - 1.6384))))
 						elif line.startswith('CHANNEL_TRIGGER'):
@@ -216,28 +225,28 @@ class Settings_Caen:
 							dest_file.write(line)
 
 				dest_file.write('\n# configuration for each channel [0] to [15], although it only has 8 channels ;)')
-				for ch in xrange(16):
+				for ch in xrange(8):
 					dest_file.write('\n\n[{ch}]'.format(ch=ch))
-					if ch == signal.ch or ch == trigger.ch or ch == ac.ch:
+					if ch in self.sigCh.values():
+						for sigi in xrange(self.num_signals):
+							if self.sigCh[sigi] == ch:
+								dest_file.write('\nENABLE_INPUT\tYES')
+								dest_file.write('\nPULSE_POLARITY\t{sp}'.format(sp='POSITIVE' if self.sig_polarity[sigi] == 1 else 'NEGATIVE'))
+								dest_file.write('\nDC_OFFSET\t{o}'.format(o=signal[sigi].dc_offset_percent))
+								dest_file.write('\nCHANNEL_TRIGGER\tDISABLED')
+					elif ch == self.trigCh:
 						dest_file.write('\nENABLE_INPUT\tYES')
+						dest_file.write('\nPULSE_POLARITY\t{sp}'.format(sp='POSITIVE' if self.trig_polarity == 1 else 'NEGATIVE'))
+						dest_file.write('\nDC_OFFSET\t{o}'.format(o=trigger.dc_offset_percent))
+						dest_file.write('\nCHANNEL_TRIGGER\tACQUISITION_ONLY')
+						dest_file.write('\nTRIGGER_THRESHOLD\t{th}'.format(th=trigger.Volts_to_ADC(self.trig_thr)))
+					elif ch == self.vetoCh:
+						dest_file.write('\nENABLE_INPUT\tYES')
+						dest_file.write('\nPULSE_POLARITY\t{sp}'.format(sp='POSITIVE' if self.veto_polarity == 1 else 'NEGATIVE'))
+						dest_file.write('\nDC_OFFSET\t{o}'.format(o=veto.dc_offset_percent))
+						dest_file.write('\nCHANNEL_TRIGGER\tDISABLED')
 					else:
 						dest_file.write('\nENABLE_INPUT\tNO')
-					if ch == signal.ch:
-						dest_file.write('\nPULSE_POLARITY\t{sp}'.format(sp=sig_polarity))
-						dest_file.write('\nDC_OFFSET\t{o}'.format(o=signal.dc_offset_percent))
-						dest_file.write('\nCHANNEL_TRIGGER\tDISABLED')
-					elif ch == self.trigCh:
-						dest_file.write('\nPULSE_POLARITY\tNEGATIVE')
-						dest_file.write('\nDC_OFFSET\t{o}'.format(o=trigger.dc_offset_percent))
-						if doBaseLines or self.random_test:
-							dest_file.write('\nCHANNEL_TRIGGER\tDISABLED')
-						else:
-							dest_file.write('\nCHANNEL_TRIGGER\tACQUISITION_ONLY')
-							dest_file.write('\nTRIGGER_THRESHOLD\t{th}'.format(th=self.GetTriggerValueADCs(trigger)))
-					elif ch == ac.ch:
-						dest_file.write('\nPULSE_POLARITY\tNEGATIVE')
-						dest_file.write('\nDC_OFFSET\t{o}'.format(o=ac.dc_offset_percent))
-						dest_file.write('\nCHANNEL_TRIGGER\tDISABLED')
 				dest_file.write('\n')
 		print 'Done'
 
@@ -261,7 +270,7 @@ class Settings_Caen:
 		print 'Done'
 
 	def RemoveBinaries(self):
-		channels = [self.sigCh, self.trigCh, self.vetoCh]
+		channels = self.sigCh.values() + [self.trigCh] + [self.vetoCh]
 		for ch in channels:
 			if os.path.isfile('wave{c}.dat'.format(c=ch)):
 				os.remove('wave{c}.dat'.format(c=ch))
