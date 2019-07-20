@@ -445,7 +445,6 @@ def main():
 		mlt.SavePickles()  # update pickles with the real amount of written events
 		mlt.settings.MoveBinaryFiles()
 		mlt.settings.RenameDigitiserSettings()
-		mlt.CloseHVClient()
 		if not mlt.settings.simultaneous_conversion:
 			mlt.CreateRootFile(files_moved=True)
 			while mlt.pconv.poll() is None:

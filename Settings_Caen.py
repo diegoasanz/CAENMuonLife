@@ -258,7 +258,8 @@ class Settings_Caen:
 
 	def MoveBinaryFiles(self):
 		print 'Moving binary files... ', ; sys.stdout.flush()
-		shutil.move('raw_wave{chs}.dat'.format(chs=self.sigCh), '{d}/Runs/{f}/{f}_signal.dat'.format(d=self.outdir, f=self.filename))
+		for sigi in xrange(self.num_signals):
+			shutil.move('raw_wave{chs}.dat'.format(chs=self.sigCh[sigi]), '{d}/Runs/{f}/{f}_signal{s}.dat'.format(s=sigi, d=self.outdir, f=self.filename))
 		shutil.move('raw_wave{cht}.dat'.format(cht=self.trigCh), '{d}/Runs/{f}/{f}_trigger.dat'.format(d=self.outdir, f=self.filename))
 		shutil.move('raw_wave{cha}.dat'.format(cha=self.vetoCh), '{d}/Runs/{f}/{f}_veto.dat'.format(d=self.outdir, f=self.filename))
 		self.RemoveBinaries()
@@ -266,7 +267,7 @@ class Settings_Caen:
 
 	def RenameDigitiserSettings(self):
 		print 'Moving digitiser settings... ', ; sys.stdout.flush()
-		shutil.move('{d}/WaveDumpConfig_CCD.txt'.format(d=self.outdir), '{d}/Runs/{f}/WDConfig_CCD_{f}.txt'.format(d=self.outdir, f=self.filename))
+		shutil.move('{d}/WaveDumpConfig_muon.txt'.format(d=self.outdir), '{d}/Runs/{f}/WDConfig_muon_{f}.txt'.format(d=self.outdir, f=self.filename))
 		print 'Done'
 
 	def RemoveBinaries(self):

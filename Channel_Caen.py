@@ -36,10 +36,12 @@ class Channel_Caen:
 		return np.divide(np.subtract(np.power(2, self.nbits, dtype='f16'), 1, dtype='f16'), 2, dtype='f16')
 
 	def ADC_to_Volts(self, adc):
-		return adc * self.Get_Cal_ADC_To_V() + self.dc_offset_percent / 50.0 - 1
+		return np.subtract(np.add(np.multiply(adc, self.Get_Cal_ADC_To_V(), dtype='f16'), np.divide(self.dc_offset_percent, 50.0, dtype='f16')), 1, dtype='f16')
+		# return adc * self.Get_Cal_ADC_To_V() + self.dc_offset_percent / 50.0 - 1
 
 	def Volts_to_ADC(self, volts):
-		return RoundInt(self.Get_Cal_V_To_ADC() * (volts - self.dc_offset_percent / 50.0 + 1))
+		return RoundInt(np.multiply(self.Get_Cal_V_To_ADC(), np.add(np.subtract(volts, np.divide(self.dc_offset_percent, 50.0, dtype='f16'), dtype='f16'), 1, dtype='f16'), dtype='f16'))
+		# return RoundInt(self.Get_Cal_V_To_ADC() * (volts - self.dc_offset_percent / 50.0 + 1))
 
 	def Set_Channel(self, settings):
 		# if it is a signal channel
