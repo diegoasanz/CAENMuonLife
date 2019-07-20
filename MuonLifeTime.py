@@ -14,7 +14,6 @@ import cPickle as pickle
 
 from Channel_Caen import Channel_Caen
 from Settings_Caen import Settings_Caen
-from HV_Control import HV_Control
 from Utils import *
 # from memory_profiler import profile
 
@@ -45,6 +44,7 @@ class MuonLifeTime:
 
 		# declare extra variables that will be used
 		self.fs0, self.ft0, self.fv0 = None, None, None
+		self.fs0 = {sigi: None for sigi in xrange(self.settings.num_signals)}
 		self.utils = Utils()
 		self.RemoveFiles()
 		self.t0, self.t1, self.t2 = None, None, None
@@ -63,13 +63,15 @@ class MuonLifeTime:
 		self.session_written_events_sig, self.session_written_events_trg, self.session_written_events_veto = 0, 0, 0
 		self.fins, self.fint, self.finv = None, None, None
 		self.datas, self.datat, self.datav = None, None, None
+		self.bar = None
 
 	def RemoveFiles(self):
 		# used, for example, to remove old files that may have stayed due to crashes
-		if self.fs0:
-			if not self.fs0.closed:
-				self.fs0.close()
-				del self.fs0
+		for sigi in xrange(self.settings.num_signals):
+			if self.fs0[sigi]:
+				if not self.fs0[sigi].closed:
+					self.fs0[sigi].close()
+					del self.fs0[sigi]
 		if self.ft0:
 			if not self.ft0.closed:
 				self.ft0.close()
@@ -78,21 +80,13 @@ class MuonLifeTime:
 			if not self.fv0.closed:
 				self.fv0.close()
 				del self.fv0
-		channels = [self.signal_ch.ch, self.trigger_ch.ch, self.veto_ch.ch]
+		channels = self.settings.sigCh.values() + [self.settings.trigCh] + [self.settings.vetoCh]
 		for ch in channels:
 			if os.path.isfile('raw_waves{c}.dat'.format(c=ch)):
 				os.remove('raw_waves{c}.dat'.format(c=ch))
 			if os.path.isfile('waves{c}.dat'.format(c=ch)):
 				os.remove('waves{c}.dat'.format(c=ch))
 		del channels
-
-	def StartHVControl(self):
-		if self.settings.do_hv_control:
-			self.hv_control = HV_Control(self.settings)
-			print 'Waiting {t} seconds for the HVClient to start... '.format(t=wait_time_hv), ; sys.stdout.flush()
-			time.sleep(wait_time_hv)
-			print 'Done'
-			self.hv_control.CheckVoltage()
 
 	def CreateEmptyFiles(self):
 		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'wb')
@@ -101,8 +95,9 @@ class MuonLifeTime:
 			self.fs0[sigi] = open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'wb')
 
 	def OpenFiles(self, mode='rb'):
-		if not self.fs0:
-			self.fs0 = open('raw_wave{s}.dat'.format(s=self.signal_ch.caen_ch), mode)
+		for sigi in xrange(self.settings.num_signals):
+			if not self.fs0[sigi]:
+				self.fs0[sigi] = open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), mode)
 		if not self.ft0:
 			self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), mode)
 		if not self.fv0:
@@ -119,11 +114,12 @@ class MuonLifeTime:
 			if self.fv0.closed:
 				del self.fv0
 				self.fv0 = None
-		if self.fs0:
-			self.fs0.close()
-			if self.fs0.closed:
-				del self.fs0
-				self.fs0 = None
+		for sigi in xrange(self.settings.num_signals):
+			if self.fs0[sigi]:
+				self.fs0[sigi].close()
+				if self.fs0[sigi].closed:
+					del self.fs0[sigi]
+					self.fs0[sigi] = None
 
 	def GetWaveforms(self, events=1, stdin=False, stdout=False):
 		self.t1 = time.time()
@@ -201,7 +197,7 @@ class MuonLifeTime:
 				# 	self.t2 = time.time()
 				self.ConcatenateBinaries()
 				if not self.settings.simultaneous_conversion:
-					self.settings.bar.update(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
+					self.bar.update(int(min(self.written_events_sig + self.sig_written, self.settings.num_events)))
 		del self.t1
 		self.t1 = None
 		self.CloseSubprocess('wave_dump', stdin=stdin, stdout=stdout)
@@ -271,7 +267,9 @@ class MuonLifeTime:
 			self.session_measured_data_trig = int(os.path.getsize('wave{t}.dat'.format(t=self.settings.trigCh)))
 			self.session_measured_data_veto = int(os.path.getsize('wave{a}.dat'.format(a=self.settings.vetoCh)))
 		else:
-			ExitMessage('Stop!!! something is wrooong!!!!', os.EX_DATAERR)
+			print 'Waiting for first event...'
+			# ExitMessage('Stop!!! something is wrooong!!!!', os.EX_DATAERR)
+			return
 
 		self.total_merged_data_sig = int(os.path.getsize('raw_wave{s}.dat'.format(s=self.settings.sigCh[0])))
 		self.total_merged_data_trig = int(os.path.getsize('raw_wave{t}.dat'.format(t=self.settings.trigCh)))
@@ -295,11 +293,11 @@ class MuonLifeTime:
 				del self.fins
 				self.fins = None
 
-				with open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'ab') as self.fs0:
-					self.fs0.write(self.datas)
-					self.fs0.flush()
-				del self.fs0, self.datas
-				self.fs0, self.datas = None, None
+				with open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'ab') as self.fs0[sigi]:
+					self.fs0[sigi].write(self.datas)
+					self.fs0[sigi].flush()
+				del self.fs0[sigi], self.datas
+				self.fs0[sigi], self.datas = None, None
 
 			with open('wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'rb') as self.fint:
 				self.fint.seek(self.written_events_trig * self.settings.struct_len, 0)
@@ -387,8 +385,8 @@ class MuonLifeTime:
 		if self.settings.simultaneous_conversion:
 			self.CreateRootFile(files_moved=False)
 		else:
-			bar = CreateProgressBarUtils(self.settings.num_events)
-			bar.start()
+			self.bar = CreateProgressBarUtils(self.settings.num_events)
+			self.bar.start()
 		self.settings.SetupDigitiser(signal=self.signal_ch, trigger=self.trigger_ch, veto=self.veto_ch)
 		while self.total_events < self.settings.num_events:
 			self.sig_written = self.CalculateEventsWritten(self.settings.sigCh[0])
@@ -399,7 +397,7 @@ class MuonLifeTime:
 		self.CloseFiles()
 		if not self.settings.simultaneous_conversion:
 			print 'Time getting {n} events: {t} seconds'.format(n=self.total_events, t=time.time() - self.t0)
-			self.settings.bar.finish()
+			self.bar.finish()
 		else:
 			while self.pconv.poll() is None:
 				continue

@@ -77,7 +77,7 @@ class Settings_Caen:
 					if parser.has_option('OPTILINK', 'wavedump_path'):
 						self.wavedump_path = parser.get('OPTILINK', 'wavedump_path')
 
-				if parser.has_option('USB'):
+				if parser.has_section('USB'):
 					if parser.has_option('USB', 'use_usb'):
 						self.use_usb = parser.getboolean('USB', 'use_usb')
 					if parser.has_option('USB', 'wavedump_path'):
@@ -176,7 +176,7 @@ class Settings_Caen:
 				self.UpdateSignalResolution()
 
 	def UpdateSignalResolution(self):
-		self.sigRes = np.divide(self.input_range, np.subtract(np.power(2, self.dig_bits, dtype='f16'), 1, dtype='f16'), dtype='f16')
+		self.sigRes = np.divide(self.input_range, np.subtract(np.power(2, self.dig_bits, dtype='f8'), 1, dtype='f8'), dtype='f8')
 
 	def SetOutputFiles(self):
 		def AddSuffix(string1):

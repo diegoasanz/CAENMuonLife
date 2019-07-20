@@ -30,17 +30,17 @@ class Channel_Caen:
 		self.base_line_adcs = 0
 
 	def Get_Cal_ADC_To_V(self):
-		return np.divide(2, np.subtract(np.power(2, self.nbits, dtype='f16'), 1, dtype='f16'), dtype='f16')
+		return np.divide(2, np.subtract(np.power(2, self.nbits, dtype='f8'), 1, dtype='f8'), dtype='f8')
 
 	def Get_Cal_V_To_ADC(self):
-		return np.divide(np.subtract(np.power(2, self.nbits, dtype='f16'), 1, dtype='f16'), 2, dtype='f16')
+		return np.divide(np.subtract(np.power(2, self.nbits, dtype='f8'), 1, dtype='f8'), 2, dtype='f8')
 
 	def ADC_to_Volts(self, adc):
-		return np.subtract(np.add(np.multiply(adc, self.Get_Cal_ADC_To_V(), dtype='f16'), np.divide(self.dc_offset_percent, 50.0, dtype='f16')), 1, dtype='f16')
+		return np.subtract(np.add(np.multiply(adc, self.Get_Cal_ADC_To_V(), dtype='f8'), np.divide(self.dc_offset_percent, 50.0, dtype='f8')), 1, dtype='f8')
 		# return adc * self.Get_Cal_ADC_To_V() + self.dc_offset_percent / 50.0 - 1
 
 	def Volts_to_ADC(self, volts):
-		return RoundInt(np.multiply(self.Get_Cal_V_To_ADC(), np.add(np.subtract(volts, np.divide(self.dc_offset_percent, 50.0, dtype='f16'), dtype='f16'), 1, dtype='f16'), dtype='f16'))
+		return RoundInt(np.multiply(self.Get_Cal_V_To_ADC(), np.add(np.subtract(volts, np.divide(self.dc_offset_percent, 50.0, dtype='f8'), dtype='f8'), 1, dtype='f8'), dtype='f8'))
 		# return RoundInt(self.Get_Cal_V_To_ADC() * (volts - self.dc_offset_percent / 50.0 + 1))
 
 	def Set_Channel(self, settings):
