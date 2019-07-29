@@ -217,7 +217,8 @@ class Settings_Caen:
 						elif line.startswith('RECORD_LENGTH'):
 							dest_file.write('RECORD_LENGTH\t{p}\n'.format(p=int(RoundInt(self.points))))
 						elif line.startswith('POST_TRIGGER'):
-							dest_file.write('POST_TRIGGER\t{pt}\n'.format(pt=int(round(self.post_trig_percent*0.9996 - 1.6384))))
+							dest_file.write('POST_TRIGGER\t{pt}\n'.format(pt=int(round(self.post_trig_percent))))
+							# dest_file.write('POST_TRIGGER\t{pt}\n'.format(pt=int(round(self.post_trig_percent*0.9996 - 1.6384))))
 						elif line.startswith('CHANNEL_TRIGGER'):
 							dest_file.write('CHANNEL_TRIGGER\tDISABLED\n')
 							cont = False

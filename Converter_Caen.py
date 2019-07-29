@@ -59,8 +59,9 @@ class Converter_Caen:
 		self.time_recal = self.settings.time_calib
 		self.sig_polarity = {sigi: self.signal_ch[sigi].polarity for sigi in xrange(self.settings.num_signals)}
 		# define trigger and veto windows
-		self.trigger_search_window = 0.1e-6
-		self.veto_window_around_trigg = 0.1e-6
+		self.trigger_search_window = 0.5e-6
+		self.veto_window_around_trigg = 0.5e-6
+		self.sig_window_around_trigg = 0.5e-6
 		self.doVeto = True
 
 		self.array_points = np.arange(self.points, dtype=np.dtype('int32'))
@@ -68,6 +69,7 @@ class Converter_Caen:
 		self.raw_file = None
 		self.raw_tree = None
 		self.sigBra = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		# self.sigADCBra = {sigi: None for sigi in xrange(self.settins.num_signals)}
 		self.eventBra = self.trigBra = self.vetoBra = self.timeBra = self.vetoedBra = self.badShapeBra = self.badPedBra = None
 		# self.hourBra = self.minuteBra = self.secondBra = None
 		self.hourMinSecBra = None
@@ -99,6 +101,30 @@ class Converter_Caen:
 		self.struct_s = self.struct_t = self.struct_ac = None
 		self.struct_s = {sigi: None for sigi in xrange(self.settings.num_signals)}
 
+		self.sigm_stop_threshold = 4
+		self.sigm_decay_threshold = 4
+
+		self.cond_sig_ped_pos = None
+		self.cond_sig_decay_window = None
+		self.cond_sig_stop_window = None
+
+		self.sigVoltsPed = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigVoltsSigma = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		# self.sigVoltsPedSub = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sig_stop_event = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sig_decay_event = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.num_sigs_stop = None
+		self.num_sigs_decay = None
+
+		self.sigStopBra = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigDecayBra = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigStopEvent = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigDecayEvent = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigPedBra = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.sigSigmaBra = {sigi: None for sigi in xrange(self.settings.num_signals)}
+		self.numSigsStopBra = None
+		self.numSigsDecayBra = None
+
 		self.bar = None
 
 	def SetupRootFile(self):
@@ -117,15 +143,31 @@ class Converter_Caen:
 		self.sigBra = {sigi: np.zeros(self.points, 'f8') for sigi in xrange(self.settings.num_signals)}
 		self.trigBra = np.zeros(self.points, 'f8')
 		self.timeBra = np.zeros(self.points, 'f8')
+
+		self.sigStopBra = {sigi: np.zeros(1, '?') for sigi in xrange(self.settings.num_signals)}
+		self.sigDecayBra = {sigi: np.zeros(1, '?') for sigi in xrange(self.settings.num_signals)}
+		self.sigPedBra = {sigi: np.zeros(1, 'f8') for sigi in xrange(self.settings.num_signals)}
+		self.sigSigmaBra = {sigi: np.zeros(1, 'f8') for sigi in xrange(self.settings.num_signals)}
+		self.numSigsStopBra = np.zeros(1, 'uint8')
+		self.numSigsDecayBra = np.zeros(1, 'uint8')
+		# self.sigPedSubtrBra = {sigi: np.zeros(self.points, 'f8') for sigi in xrange(self.settings.num_signals)}
+
 		# self.badShapeBra = np.zeros(1, dtype=np.dtype('int8'))  # signed char
 		# self.badPedBra = np.zeros(1, '?')
 		self.raw_tree.Branch('event', self.eventBra, 'event/i')
 		self.raw_tree.Branch('time', self.timeBra, 'time[{s}]/D'.format(s=self.points))
 		for sigi in xrange(self.settings.num_signals):
 			self.raw_tree.Branch('voltageSignal{s}'.format(s=sigi), self.sigBra[sigi], 'voltageSignal{si}[{s}]/D'.format(si=sigi, s=self.points))
+			self.raw_tree.Branch('stopSignal{s}'.format(s=sigi), self.sigStopBra[sigi], 'stopSignal{s}/O'.format(s=sigi))
+			self.raw_tree.Branch('decaySignal{s}'.format(s=sigi), self.sigDecayBra[sigi], 'decaySignal{s}/O'.format(s=sigi))
+			self.raw_tree.Branch('pedSignal{s}'.format(s=sigi), self.sigPedBra[sigi], 'pedSignal{s}/D'.format(s=sigi))
+			self.raw_tree.Branch('sigmaSignal{s}'.format(s=sigi), self.sigSigmaBra[sigi], 'sigmaSignal{s}/D'.format(s=sigi))
+			# self.raw_tree.Branch('voltageSignalPedSub{s}'.format(s=sigi), self.sigPedSubtrBra[sigi], 'voltageSignalPedSub{si}[{s}]/D'.format(si=sigi, s=self.points))
 		self.raw_tree.Branch('voltageTrigger', self.trigBra, 'voltageTrigger[{s}]/D'.format(s=self.points))
 		self.raw_tree.Branch('voltageVeto', self.vetoBra, 'voltageVeto[{s}]/D'.format(s=self.points))
 		self.raw_tree.Branch('vetoedEvent', self.vetoedBra, 'vetoedEvent/O')
+		self.raw_tree.Branch('numSigsStop', self.numSigsStopBra, 'numSigsStop/b')
+		self.raw_tree.Branch('numSigsDecay', self.numSigsDecayBra, 'numSigsDecay/b')
 		# self.raw_tree.Branch('badShape', self.badShapeBra, 'badShape/B')  # signed char
 		# self.raw_tree.Branch('badPedestal', self.badPedBra, 'badPedestal/O')
 
@@ -171,6 +213,15 @@ class Converter_Caen:
 			self.vetoADC = np.array(self.struct_ac, 'H')
 			self.vetoVolts = self.ADC_to_Volts('veto')
 			self.vetoed_event = self.IsEventVetoed()
+
+			ped_sigma_dic = self.GetInfoSignal()
+			self.sigVoltsPed = {sigi: ped_sigma_dic['mean'][sigi] for sigi in xrange(self.settings.num_signals)}
+			self.sigVoltsSigma = {sigi: ped_sigma_dic['sigma'][sigi] for sigi in xrange(self.settings.num_signals)}
+			self.sigStopEvent = {sigi: self.IsEventStop(sigi) for sigi in xrange(self.settings.num_signals)}
+			self.sigDecayEvent = {sigi: self.IsEventDecay(sigi) for sigi in xrange(self.settings.num_signals)}
+			self.num_sigs_stop = np.array(self.sigStopEvent.values()).sum()
+			self.num_sigs_decay = np.array(self.sigDecayEvent.values()).sum()
+
 			# self.DefineSignalBaseLineAndPeakPosition()
 			# self.bad_shape_event = self.IsEventBadShape()
 			# self.bad_pedstal_event = self.IsPedestalBad()
@@ -219,7 +270,8 @@ class Converter_Caen:
 	def LookForTime0(self):
 		guess_pos = int(round(self.points * (100.0 - self.post_trig_percent)/100.0))
 		condition_trigg = np.array(np.abs(self.array_points - guess_pos) <= int(round(self.trigger_search_window/self.time_res)), dtype='?')
-		condition_no_trigg = np.array(1 - condition_trigg, dtype='?')
+		condition_no_trigg = np.bitwise_not(condition_trigg)
+		# condition_no_trigg = np.array(1 - condition_trigg, dtype='?')
 		# mean = np.extract(condition_no_trigg, self.trigVolts).mean()
 		# sigma = np.extract(condition_no_trigg, self.trigVolts).std()
 		temp_trig_volts = np.copy(self.trigVolts)
@@ -233,12 +285,31 @@ class Converter_Caen:
 
 	def IsEventVetoed(self):
 		condition_veto_base_line = np.array(np.abs(self.array_points - self.trigPos) > int(round(self.veto_window_around_trigg / float(self.time_res))), dtype='?')
-		condition_search = np.array(1 - condition_veto_base_line, dtype='?')
+		condition_search = np.bitwise_not(condition_veto_base_line)
+		# condition_search = np.array(1 - condition_veto_base_line, dtype='?')
 		# meanbl = np.extract(condition_veto_base_line, self.vetoADC).mean()
 		# veto_event = bool((np.extract(condition_search, self.vetoADC) - meanbl + self.veto_value).min() <= 0)
-		veto_event = bool((np.extract(condition_search, self.vetoADC) - self.veto_value).min() <= 0)
+		# if self.vetoVolts.min() < - 0.1: ipdb.set_trace()
+		veto_event = bool((np.extract(condition_search, self.vetoADC) - self.veto_value).astype('int16').min() <= 0)
 		del condition_search, condition_veto_base_line #, meanbl
 		return veto_event
+
+	def GetInfoSignal(self):
+		self.cond_sig_ped_pos = np.array((self.array_points - (self.trigPos - self.sig_window_around_trigg / float(self.time_res))).astype('float64') < 0, dtype='?')
+		self.cond_sig_stop_window = np.array(np.abs(self.array_points - self.trigPos) <= int(round(self.sig_window_around_trigg / float(self.time_res))), dtype='?')
+		self.cond_sig_decay_window = np.array(self.array_points - self.trigPos - self.sig_window_around_trigg / float(self.time_res) > 0, dtype='?')
+		sigPedVolts = {sigi: np.extract(self.cond_sig_ped_pos, self.sigVolts[sigi]) for sigi in xrange(self.settings.num_signals)}
+		pedMean = {sigi: sigPedVolts[sigi].mean() for sigi in xrange(self.settings.num_signals)}
+		pedSigma = {sigi: sigPedVolts[sigi].std() for sigi in xrange(self.settings.num_signals)}
+		return {'mean': pedMean, 'sigma': pedSigma}
+
+	def IsEventStop(self, signum=0):
+		is_stop = bool(np.add(np.extract(self.cond_sig_stop_window, np.subtract(self.sigVolts[signum], self.sigVoltsPed[signum], dtype='f8')).min(), np.multiply(self.sigm_stop_threshold, self.sigVoltsSigma[signum], dtype='f8'), dtype='f8') <= 0)
+		return is_stop
+
+	def IsEventDecay(self, signum):
+		is_decay = bool(np.add(np.extract(self.cond_sig_decay_window, np.subtract(self.sigVolts[signum], self.sigVoltsPed[signum], dtype='f8')).min(), np.multiply(self.sigm_stop_threshold, self.sigVoltsSigma[signum], dtype='f8'), dtype='f8') <= 0)
+		return is_decay
 
 	def DefineSignalBaseLineAndPeakPosition(self):
 		self.condition_base_line = np.array(self.array_points <= self.trigPos, dtype='?')
@@ -287,10 +358,16 @@ class Converter_Caen:
 		np.putmask(self.timeBra, np.ones(self.points, '?'), self.timeVect)
 		for sigi, sigvolti in self.sigVolts.iteritems():
 			np.putmask(self.sigBra[sigi], np.ones(self.points, '?'), sigvolti)
+			self.sigStopBra[sigi].fill(self.sigStopEvent[sigi])
+			self.sigDecayBra[sigi].fill(self.sigDecayEvent[sigi])
+			self.sigPedBra[sigi].fill(self.sigVoltsPed[sigi])
+			self.sigSigmaBra[sigi].fill(self.sigVoltsSigma[sigi])
 		# np.putmask(self.sigBra, np.bitwise_not(np.zeros(self.points, '?')), self.sigVolts)
 		np.putmask(self.trigBra, np.ones(self.points, '?'), self.trigVolts)
 		np.putmask(self.vetoBra, np.ones(self.points, '?'), self.vetoVolts)
 		self.vetoedBra.fill(self.vetoed_event)
+		self.numSigsStopBra.fill(self.num_sigs_stop)
+		self.numSigsDecayBra.fill(self.num_sigs_decay)
 		# self.badShapeBra.fill(self.bad_shape_event)
 		# self.badPedBra.fill(self.bad_pedstal_event)
 

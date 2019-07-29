@@ -16,18 +16,17 @@ import cPickle as pickle
 
 from Channel_Caen import Channel_Caen
 from Settings_Caen import Settings_Caen
-from HV_Control import HV_Control
 from Utils import *
 from Langaus import LanGaus
 # from memory_profiler import profile
 
 trig_rand_time = 0.2
 wait_time_hv = 7
-BRANCHES1DTOTAL = ['event', 'vetoedEvent', 'badShape', 'badPedestal', 'voltageHV', 'currentHV', 'timeHV', 'peakPosition', 'pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
-BRANCHES1DTYPE = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'voltageHV': 'float32', 'currentHV': 'float32', 'timeHV.AsDouble()': 'float64', 'timeHV.Convert()': 'uint32', 'peakPosition': 'float32', 'pedestal': 'float32', 'pedestalSigma': 'float32', 'signalAndPedestal': 'float32','signalAndPedestalSigma': 'float32', 'signal': 'float32'}
+BRANCHES1DTOTAL = ['event', 'vetoedEvent', 'badShape', 'badPedestal', 'peakPosition', 'pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
+BRANCHES1DTYPE = {'event': 'uint32', 'vetoedEvent': 'bool', 'badShape': 'int8', 'badPedestal': 'bool', 'peakPosition': 'float32', 'pedestal': 'float32', 'pedestalSigma': 'float32', 'signalAndPedestal': 'float32','signalAndPedestalSigma': 'float32', 'signal': 'float32'}
 BRANCHESWAVESTOTAL = ['time', 'voltageSignal', 'voltageTrigger', 'voltageVeto']
 BRANCHESWAVESTYPE = {'time': 'float64', 'voltageSignal': 'float64', 'voltageTrigger': 'float64', 'voltageVeto': 'float64'}
-BRANCHES1DLOAD = ['event', 'voltageHV', 'currentHV', 'timeHV.Convert()', 'timeHV.AsDouble()', 'peakPosition']
+BRANCHES1DLOAD = ['event', 'peakPosition']
 BRANCHESWAVESLOAD = ['time', 'voltageSignal']
 ANALYSISSCALARBRANCHES = ['pedestal', 'pedestalSigma', 'signalAndPedestal', 'signalAndPedestalSigma', 'signal']
 
@@ -172,13 +171,11 @@ class AnalysisCaenCCD:
 					self.doVetoedEventCut = parser.getboolean('CUTS', 'vetoed_events')
 				if parser.has_option('CUTS', 'peak_position'):
 					self.peakTimeCut = parser.getfloat('CUTS', 'peak_position') * 1e-6
-				if parser.has_option('CUTS', 'current_cut'):
-					self.currentCut = parser.getfloat('CUTS', 'current_cut') * 1e-9
 			print 'Done'
 
 	def SetFromSettingsFile(self):
 		if self.settings:
-			self.bias = self.settings.bias
+			self.bias = 0
 
 	def LoadInputTree(self):
 		if not os.path.isdir(self.inDir):
@@ -288,7 +285,6 @@ class AnalysisCaenCCD:
 		# 	if not self.analysisTree.GetFriend(self.in_tree_name):
 		# 		self.analysisTree.AddFriend(self.in_tree_name, '{d}/{f}.root'.format(d=self.inDir, f=self.in_tree_name))
 		self.hasBranch = {branch: self.TreeHasBranch(branch) for branch in self.branchesAll}
-		self.IsTimeHVaTimeStamp()
 		self.UpdateBranchesLists()
 
 	def TreeHasBranch(self, branch):
@@ -296,35 +292,12 @@ class AnalysisCaenCCD:
 			return True
 		return False
 
-	def IsTimeHVaTimeStamp(self):
-		if self.hasBranch['timeHV']:
-			if self.in_root_tree.GetLeaf('timeHV').GetTypeName() != 'TDatime':
-				# self.branches1DLoad = ['timeHV.AsDouble()' if branch == 'timeHV' else branch for branch in self.branches1DLoad]
-				if 'timeHV.Convert()' in self.branches1DLoad: self.branches1DLoad.remove('timeHV.Convert()')
-				# del self.branches1DType['timeHV']
-				# self.branches1DType['timeHV.AsDouble()'] = 'float64'
-				if self.branches1DType.has_key('timeHV.Convert()'): del self.branches1DType['timeHV.Convert()']
-			else:
-				# self.branches1DLoad = ['timeHV.Convert()' if branch == 'timeHV' else branch for branch in self.branches1DLoad]
-				if 'timeHV.AsDouble()' in self.branches1DLoad: self.branches1DLoad.remove('timeHV.AsDouble()')
-				# del self.branches1DType['timeHV']
-				# self.branches1DType['timeHV.Convert()'] = 'uint32'
-				if self.branches1DType.has_key('timeHV.AsDouble()'): del self.branches1DType['timeHV.AsDouble()']
-
 	def UpdateBranchesLists(self):
 		for branch in self.branches1DTotal[:]:
 			if not self.hasBranch[branch]:
 				self.branches1DTotal.remove(branch)
 		for branch in self.branches1DLoad[:]:
-			if branch.startswith('timeHV'):
-				if not self.hasBranch['timeHV']:
-					self.branches1DLoad.remove(branch)
-				else:
-					if self.dicBraVect1D.has_key(branch):
-						self.dic1DVectLoaded[branch] = True if self.dicBraVect1D[branch] else False
-					else:
-						self.dic1DVectLoaded[branch] = False
-			elif not self.hasBranch[branch]:
+			if not self.hasBranch[branch]:
 				self.branches1DLoad.remove(branch)
 			else:
 				if self.dicBraVect1D.has_key(branch):
@@ -355,8 +328,6 @@ class AnalysisCaenCCD:
 			self.cut0 += ro.TCut('badShapeCut', 'badShape!=1')
 		elif self.badShapeCut == 2 and 'badShape' in self.branches1DTotal:
 			self.cut0 += ro.TCut('badShapeCut', 'badShape==0')
-		if 'currentHV' in self.branches1DTotal:
-			self.cut0 += ro.TCut('currentCut', 'abs(currentHV)<{cc}'.format(cc=self.currentCut))
 
 	def ResetCut0(self):
 		self.cut0.Clear()
@@ -408,16 +379,6 @@ class AnalysisCaenCCD:
 		if self.hasBranch['event']:
 			if self.dic1DVectLoaded['event']:
 				self.eventVect = self.dicBraVect1D['event']
-		if self.hasBranch['voltageHV']:
-			if self.dic1DVectLoaded['voltageHV']:
-				self.voltageHV = self.dicBraVect1D['voltageHV']
-		if self.hasBranch['currentHV']:
-			if self.dic1DVectLoaded['currentHV']:
-				self.currentHV = self.dicBraVect1D['currentHV']
-		if self.hasBranch['timeHV']:
-			key = 'timeHV.Convert()' if 'timeHV.Convert()' in self.branches1DLoad else 'timeHV.AsDouble()'
-			if self.dic1DVectLoaded[key]:
-				self.timeHV = self.dicBraVect1D[key]
 		if self.hasBranch['peakPosition']:
 			if self.dic1DVectLoaded['peakPosition']:
 				self.peak_positions = self.dicBraVect1D['peakPosition']
@@ -785,7 +746,7 @@ class AnalysisCaenCCD:
 		self.peakTimeCut = store_peakTimeCut
 		self.peakTime = store_peakTime
 
-	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal','voltageHV','currentHV','timeHV']):
+	def ResetTreeToOriginal(self, keepBranches=['event','time','voltageSignal','voltageTrigger','voltageVeto','vetoedEvent','badShape','badPedestal']):
 		print 'Restoring tree with the following branches:', keepBranches, '...'
 		raw_input('Press a key and Enter to continue: ')
 		self.OpenAnalysisROOTFile('READ')

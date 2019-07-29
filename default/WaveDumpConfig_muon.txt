@@ -26,7 +26,7 @@ EXTERNAL_TRIGGER	DISABLED
 # specify maximum number of events to read out in one Block Transfer. Must be between 1 and 1023
 MAX_NUM_EVENTS_BLT	1
 
-# the percentage of the amount of data stored after the trigger in the event window. Has an offset of ~1.6... only accepts integers
+# the percentage of the amount of data stored after the trigger in the event window. Only accepts integers
 POST_TRIGGER	93
 
 # number of events that have to be ready before readout when the IRQ is asserted. 0 means run continuously. 1023 is the maximum
