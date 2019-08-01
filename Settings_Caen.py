@@ -165,8 +165,8 @@ class Settings_Caen:
 						self.veto_offset = self.veto_polarity * 45
 
 				if parser.has_section('OUTPUT'):
-					if parser.has_option('OUTPUT', 'inDir'):
-						self.outdir = parser.get('OUTPUT', 'inDir')
+					if parser.has_option('OUTPUT', 'dir'):
+						self.outdir = parser.get('OUTPUT', 'dir')
 					if parser.has_option('OUTPUT', 'prefix'):
 						self.prefix = parser.get('OUTPUT', 'prefix')
 					if parser.has_option('OUTPUT', 'suffix'):
