@@ -7,7 +7,7 @@ import time, os, sys
 from optparse import OptionParser
 import progressbar
 import ipdb
-from pykeyboard import PyKeyboard
+# from pykeyboard import PyKeyboard
 from ConfigParser import ConfigParser
 import subprocess as subp
 import struct
@@ -34,6 +34,7 @@ class Utils:
 			#  ' ', progressbar.AdaptativeTransferSpeed()
 		]
 		self.bar = progressbar.ProgressBar(widgets=widgets, maxval=maxVal)
+		# return bar
 
 def FindRedundantEvents(settings):
 	channels = [settings.sigCh, settings.trigCh, settings.acCh] if settings.ac_enable else [settings.sigCh, settings.trigCh]

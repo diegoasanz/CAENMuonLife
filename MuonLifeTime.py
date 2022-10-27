@@ -400,14 +400,14 @@ class MuonLifeTime:
 			self.bar.finish()
 		else:
 			while self.pconv.poll() is None:
-				continue
+				time.sleep(2)
 			self.CloseSubprocess('converter', stdin=False, stdout=False)
 		return self.total_events
 
 	def CreateRootFile(self, files_moved=False):
 		settings_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}/{f}.settings'.format(f=self.settings.filename))
 		data_bin_path = os.path.abspath(self.settings.outdir + '/Runs/{f}'.format(f=self.settings.filename)) if files_moved else os.getcwd()
-		self.pconv = subp.Popen(['python', 'Converter_Caen.py', settings_bin_path, data_bin_path], close_fds=True)
+		self.pconv = subp.Popen(['python', 'Converter_Caen_Raw.py', settings_bin_path, data_bin_path], close_fds=True) if self.settings.simultaneous_conversion else subp.Popen(['python', 'Converter_Caen_Raw.py', settings_bin_path, data_bin_path, 0], close_fds=True)
 		del settings_bin_path
 
 	def SavePickles(self):
@@ -430,7 +430,7 @@ def main():
 	parser = OptionParser()
 	parser.add_option('-i', '--infile', dest='infile', default='None', type='string',
 	                  help='Input configuration file. e.g. CAENCalibration.cfg')
-	parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic conversion and analysis afterwards', action='store_true')
+	parser.add_option('-a', '--automatic', dest='auto', default=False, help='Toggles automatic data taking and conversion', action='store_true')
 
 	(options, args) = parser.parse_args()
 	infile = str(options.infile)
