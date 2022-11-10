@@ -18,7 +18,6 @@ import ipdb
 from Channel_Caen import Channel_Caen
 from Settings_Caen import Settings_Caen
 from Utils import *
-from Langaus import LanGaus
 # from memory_profiler import profile
 
 class AnalysisMuonLifeTime:
@@ -244,13 +243,13 @@ class AnalysisMuonLifeTime:
 		temph = ro.TH1F('temph', 'temph', bins, minv, maxv)
 		print '\nVeto Scintillator'
 		if self.veto_threshold < -2000:
-			self.in_root_tree.Draw('voltageVeto/10>>temph', '(-500>time)||(time>500)', 'goff', 10, self.start_event)
+			self.in_root_tree.Draw('voltageVeto/10>>temph', '(-500>time)||(time>500)', 'goff', 100, self.start_event)
 			self.veto_threshold = temph.GetMean() - self.veto_sigmas * temph.GetRMS()
 			print 'Veto scintillator, pedestal: {m} mV, RMS: {si} mV'.format(m=temph.GetMean(), si=temph.GetRMS())
 		print 'Veto scintillator threshold:', self.veto_threshold, 'mV'
 		print '\nTrigger Scintillator'
 		if self.trigger_threshold < -2000:
-			self.in_root_tree.Draw('voltageTrigger/10>>temph', '(-500>time)||(time>500)', 'goff', 10, self.start_event)
+			self.in_root_tree.Draw('voltageTrigger/10>>temph', '(-500>time)||(time>500)', 'goff', 100, self.start_event)
 			self.trigger_threshold = temph.GetMean() - self.veto_sigmas * temph.GetRMS()
 			print 'Trigger scintillator, pedestal: {m} mV, RMS: {si} mV'.format(m=temph.GetMean(), si=temph.GetRMS())
 		print 'Trigger scintillator threshold:', self.trigger_threshold, 'mV'
@@ -357,6 +356,8 @@ class AnalysisMuonLifeTime:
 		self.timeStopVect = np.full(self.tot_events, -10000, 'int16')
 		self.timeDecayVect = np.full(self.tot_events, -10000, 'int16')
 		self.timeDecayVect2 = np.full(self.tot_events, -10000, 'int16')
+		self.lifeTimeVect = np.full(self.tot_events, -10000, 'int16')
+		self.lifeTimeVect2 = np.full(self.tot_events, -10000, 'int16')
 		self.in_root_tree.SetBranchStatus('*', 1)
 		self.in_root_tree.SetBranchStatus('voltageTrigger', 0)
 		self.in_root_tree.SetBranchStatus('voltageVeto', 0)
@@ -368,8 +369,14 @@ class AnalysisMuonLifeTime:
 		print 'Looping over analysable events'
 		self.utils.CreateProgressBar(maxpbar)
 		self.utils.bar.start()
-		cont = 0
 		for ev in self.eventVect:
+			timeStop = -10000
+			chStop = -1
+			tempTimeStop = -10000
+			timeDecay = -10000
+			chDecay = -1
+			timeDecay2 = -10000
+			chDecay2 = -1
 			self.in_root_tree.GetEntry(ev)
 			np.putmask(self.timeVect, onesVect, self.in_root_tree.time)
 			for sig in xrange(self.num_signals):
@@ -380,7 +387,7 @@ class AnalysisMuonLifeTime:
 			chsStop = []
 			chsTimeStop = []
 			# chsTimeStopEnd = []
-			cond_sig_threshold = {sig: self.signalWaveVects[sig] < 10 * self.signals_threshold[sig] for sig in xrange(self.num_signals)}
+			cond_sig_threshold = {sig: self.signalWaveVects[sig].astype('int32') < 10 * self.signals_threshold[sig] for sig in xrange(self.num_signals)}
 			for sig in xrange(self.num_signals):
 				cond_sig_threshold_i = cond_sig_threshold[sig]
 				foundStop = cond_sig_threshold_i[timeStopInd].any()
@@ -397,7 +404,6 @@ class AnalysisMuonLifeTime:
 				pos = np.argmin(chsTimeStop)
 				timeStop = chsTimeStop[pos]
 				chStop = chsStop[pos]
-				# timeStopEnd = chsTimeStopEnd[pos]
 				self.timeStopVect.itemset(ev, timeStop)
 				self.chStopVect.itemset(ev, chStop)
 				chsDecay = []
@@ -413,42 +419,38 @@ class AnalysisMuonLifeTime:
 						cond_sig_threshold_i = cond_sig_threshold[sig]
 						foundDecay = cond_sig_threshold_i[timeDecayInd].any()
 						if foundDecay:
-							chsDecay.append(sig)
 							chsDecay2.append(sig)
 							cond_time_decay = np.bitwise_and(cond_decay_window, cond_sig_threshold_i)
-							chsTimeDecay.append(self.timeVect[cond_time_decay.argmax()])
 							chsTimeDecay2.append(self.timeVect[cond_time_decay.argmax()])
 				# check stop signal
-				# cond_decay_window = (timeStopEnd + self.delay_time) < self.timeVect
-				cond_decay_window = (timeStop + self.delay_time) < self.timeVect
 				timeDecayInd = np.argwhere(cond_decay_window).flatten()
 				cond_sig_threshold_i = cond_sig_threshold[chStop]
 				foundDecay = cond_sig_threshold_i[timeDecayInd].any()
 				if foundDecay:
+					chsDecay.append(chStop)
 					chsDecay2.append(chStop)
 					cond_time_decay = np.bitwise_and(cond_decay_window, cond_sig_threshold_i)
+					chsTimeDecay.append(self.timeVect[cond_time_decay.argmax()])
 					chsTimeDecay2.append(self.timeVect[cond_time_decay.argmax()])
+				# get minimum decay time in array for decay in same stop channel
 				if len(chsDecay) > 0:
 					pos = np.argmin(chsTimeDecay)
 					timeDecay = chsTimeDecay[pos]
 					chDecay = chsDecay[pos]
 					self.timeDecayVect.itemset(ev, timeDecay)
 					self.chDecayVect.itemset(ev, chDecay)
+					self.lifeTimeVect.itemset(ev, timeDecay - timeStop)
+				# get minimum decay time in array for any decay
 				if len(chsDecay2) > 0:
 					pos = np.argmin(chsTimeDecay2)
-					if len(chsDecay2) > 1:
-						print 'Decays: ', chsTimeDecay2
-						cont += 1
 					timeDecay2 = chsTimeDecay2[pos]
 					chDecay2 = chsDecay2[pos]
 					self.timeDecayVect2.itemset(ev, timeDecay2)
 					self.chDecayVect2.itemset(ev, chDecay2)
+					self.lifeTimeVect2.itemset(ev, timeDecay2 - timeStop)
 
 			itbar += 1
 			self.utils.bar.update(itbar)
-		print 'Cont', cont
-		self.lifeTimeVect = np.subtract(self.timeDecayVect, self.timeStopVect, dtype='int16')
-		self.lifeTimeVect2 = np.subtract(self.timeDecayVect2, self.timeStopVect, dtype='int16')
 		print 'Finished analysing events'
 
 	def CloseAnalysisROOTFile(self):

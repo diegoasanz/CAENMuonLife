@@ -109,6 +109,15 @@ class Converter_Caen_Raw:
 		self.cond_sig_decay_window = None
 		self.cond_sig_stop_window = None
 
+		self.trigPedBra = np.zeros(1, 'int16')
+		self.trigNoiseBra = np.zeros(1, 'uint16')
+
+		self.vetoNoiseBra = np.zeros(1, 'uint16')
+		self.vetoPedBra = np.zeros(1, 'int16')
+
+		self.noiseBra = {sigi: np.zeros(1, 'uint16') for sigi in xrange(self.settings.num_signals)}
+		self.pedBra = {sigi: np.zeros(1, 'int16') for sigi in xrange(self.settings.num_signals)}
+
 		self.bar = None
 
 	def SetupRootFile(self):
@@ -122,18 +131,33 @@ class Converter_Caen_Raw:
 		self.raw_tree.SetAutoSave(-10485760)
 		if self.doVeto:
 			self.vetoBra = np.zeros(self.points, 'int16')
+			self.vetoNoiseBra = np.zeros(1, 'uint16')
+			self.vetoPedBra = np.zeros(1, 'int16')
 			self.vetoedBra = np.zeros(1, '?')
 		self.eventBra = np.zeros(1, 'I')
 		self.sigBra = {sigi: np.zeros(self.points, 'int16') for sigi in xrange(self.settings.num_signals)}
+		self.noiseBra = {sigi: np.zeros(1, 'uint16') for sigi in xrange(self.settings.num_signals)}
+		self.pedBra = {sigi: np.zeros(1, 'int16') for sigi in xrange(self.settings.num_signals)}
 		self.trigBra = np.zeros(self.points, 'int16')
+		self.trigPedBra = np.zeros(1, 'int16')
+		self.trigNoiseBra = np.zeros(1, 'uint16')
 		self.timeBra = np.zeros(self.points, 'int16')
 
 		self.raw_tree.Branch('event', self.eventBra, 'event/i')
 		self.raw_tree.Branch('time', self.timeBra, 'time[{s}]/S'.format(s=self.points))
+
 		for sigi in xrange(self.settings.num_signals):
 			self.raw_tree.Branch('voltageSignal{s}'.format(s=sigi), self.sigBra[sigi], 'voltageSignal{si}[{s}]/S'.format(si=sigi, s=self.points))
+			self.raw_tree.Branch('noiseSignal{s}'.format(s=sigi), self.noiseBra[sigi], 'noiseSignal{si}/s'.format(si=sigi))
+			self.raw_tree.Branch('pedestalSignal{s}'.format(s=sigi), self.pedBra[sigi], 'pedestalSignal{si}/S'.format(si=sigi))
+
 		self.raw_tree.Branch('voltageTrigger', self.trigBra, 'voltageTrigger[{s}]/S'.format(s=self.points))
+		self.raw_tree.Branch('pedestalTrigger', self.trigPedBra, 'pedestalTrigger/S')
+		self.raw_tree.Branch('noiseTrigger', self.trigNoiseBra, 'noiseTrigger/s')
+
 		self.raw_tree.Branch('voltageVeto', self.vetoBra, 'voltageVeto[{s}]/S'.format(s=self.points))
+		self.raw_tree.Branch('pedestalVeto', self.vetoPedBra, 'pedestalVeto/S')
+		self.raw_tree.Branch('noiseVeto', self.vetoNoiseBra, 'noiseVeto/S')
 
 	def GetBinariesNumberWrittenEvents(self):
 		self.signal_written_events = int(round(os.path.getsize(self.signal_path[0]) / self.struct_len)) if os.path.isfile(self.signal_path[0]) else 0
@@ -214,22 +238,44 @@ class Converter_Caen_Raw:
 		if not self.datas[0] or not self.datat or not self.dataa:
 			ExitMessage('No event in signal or trigger files... exiting', os.EX_DATAERR)
 
+	def GetInfoTrigger(self):
+		cond_trig_ped = self.timeVect < -300
+		trigPedVolts = np.extract(cond_trig_ped, self.trigVolts)
+		trigPed = trigPedVolts.mean()
+		trigSigma = trigPedVolts.std()
+		return {'mean': trigPed, 'sigma': trigSigma}
+
+	def GetInfoVeto(self):
+		cond_veto_ped = self.timeVect < -300
+		vetoPedVolts = np.extract(cond_veto_ped, self.vetoVolts)
+		vetoPed = vetoPedVolts.mean()
+		vetoSigma = vetoPedVolts.std()
+		return {'mean': vetoPed, 'sigma': vetoSigma}
+
 	def GetInfoSignal(self):
-		self.cond_sig_ped_pos = np.array((self.array_points - (self.trigPos - self.sig_window_around_trigg / float(self.time_res))).astype('float64') < 0, dtype='?')
-		self.cond_sig_stop_window = np.array(np.abs(self.array_points - self.trigPos) <= int(round(self.sig_window_around_trigg / float(self.time_res))), dtype='?')
-		self.cond_sig_decay_window = np.array(self.array_points - self.trigPos - self.sig_window_around_trigg / float(self.time_res) > 0, dtype='?')
+		# self.cond_sig_ped_pos = np.array((self.array_points - (self.trigPos - self.sig_window_around_trigg / float(self.time_res))).astype('float64') < 0, dtype='?')
+		self.cond_sig_ped_pos = self.timeVect < -300
 		sigPedVolts = {sigi: np.extract(self.cond_sig_ped_pos, self.sigVolts[sigi]) for sigi in xrange(self.settings.num_signals)}
-		pedMean = {sigi: sigPedVolts[sigi].mean() for sigi in xrange(self.settings.num_signals)}
-		pedSigma = {sigi: sigPedVolts[sigi].std() for sigi in xrange(self.settings.num_signals)}
+		pedMean = {sigi: np.floor(sigPedVolts[sigi].mean() + 0.5).astype('int16') for sigi in xrange(self.settings.num_signals)}
+		pedSigma = {sigi: np.floor(sigPedVolts[sigi].std() + 0.5).astype('uint16') for sigi in xrange(self.settings.num_signals)}
 		return {'mean': pedMean, 'sigma': pedSigma}
 
 	def FillBranches(self, ev):
 		self.eventBra.fill(ev)
 		np.putmask(self.timeBra, np.ones(self.points, '?'), self.timeVect)
+		dicsSigs = self.GetInfoSignal()
+		dicTrig = self.GetInfoTrigger()
+		dicVeto = self.GetInfoVeto()
 		for sigi, sigvolti in self.sigVolts.iteritems():
 			np.putmask(self.sigBra[sigi], np.ones(self.points, '?'), sigvolti)
+			self.pedBra[sigi].fill(dicsSigs['mean'][sigi])
+			self.noiseBra[sigi].fill(dicsSigs['sigma'][sigi])
 		np.putmask(self.trigBra, np.ones(self.points, '?'), self.trigVolts)
+		self.trigPedBra.fill(dicTrig['mean'])
+		self.trigNoiseBra.fill(dicTrig['sigma'])
 		np.putmask(self.vetoBra, np.ones(self.points, '?'), self.vetoVolts)
+		self.vetoPedBra.fill(dicVeto['mean'])
+		self.vetoNoiseBra.fill(dicVeto['sigma'])
 
 	def CloseAll(self):
 		self.bar.finish()
@@ -268,11 +314,11 @@ if __name__ == '__main__':
 	# By default, it assumes simultaneous data conversion. If the conversion is done offline (aka. not simultaneous), then the 3rd parameter has to be given and should be '0'
 
 	if len(sys.argv) < 2:
-		print 'Usage is: Converter_Caen.py <settings_pickle_path> <dir_with_raw_data> 0 for offline conversion)'
+		print 'Usage is: Converter_Caen_Raw.py <settings_pickle_path> <dir_with_raw_data> 0 for offline conversion)'
 		exit()
 	settings_object = str(sys.argv[1])  # settings pickle path
 	if settings_object in ['-h', '--help']:
-		print 'Usage is: Converter_Caen.py <settings_pickle_path> <dir_with_raw_data> 0 for offline conversion)'
+		print 'Usage is: Converter_Caen_Raw.py <settings_pickle_path> <dir_with_raw_data> 0 for offline conversion)'
 		exit()
 	print 'settings object', settings_object
 	if len(sys.argv) > 2:
