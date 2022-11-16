@@ -66,22 +66,29 @@ class MuonLifeTime:
 		self.bar = None
 
 	def RemoveFiles(self):
-		# used, for example, to remove old files that may have stayed due to crashes
+		'''
+		Removes old files in the directory where the MuonLifeTime.py file is. Useful to eliminate lingering files after a crash
+		:return:
+		'''
 		for sigi in xrange(self.settings.num_signals):
+			# close and delete instances of signal channels
 			if self.fs0[sigi]:
 				if not self.fs0[sigi].closed:
 					self.fs0[sigi].close()
 					del self.fs0[sigi]
 		if self.ft0:
+			# close ane delete instance of trigger channel
 			if not self.ft0.closed:
 				self.ft0.close()
 				del self.ft0
 		if self.fv0:
+			# close and delete instance of veto channel
 			if not self.fv0.closed:
 				self.fv0.close()
 				del self.fv0
 		channels = self.settings.sigCh.values() + [self.settings.trigCh] + [self.settings.vetoCh]
 		for ch in channels:
+			# remove lingering files for signals, trigger and veto channels
 			if os.path.isfile('raw_waves{c}.dat'.format(c=ch)):
 				os.remove('raw_waves{c}.dat'.format(c=ch))
 			if os.path.isfile('waves{c}.dat'.format(c=ch)):
@@ -89,12 +96,21 @@ class MuonLifeTime:
 		del channels
 
 	def CreateEmptyFiles(self):
+		'''
+		Creates empty data files for each signal channel, the veto channel and the trigger channel
+		:return:
+		'''
 		self.ft0 = open('raw_wave{t}.dat'.format(t=self.trigger_ch.caen_ch), 'wb')
 		self.fv0 = open('raw_wave{a}.dat'.format(a=self.veto_ch.caen_ch), 'wb')
 		for sigi in xrange(self.settings.num_signals):
 			self.fs0[sigi] = open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), 'wb')
 
 	def OpenFiles(self, mode='rb'):
+		'''
+
+		:param mode:
+		:return:
+		'''
 		for sigi in xrange(self.settings.num_signals):
 			if not self.fs0[sigi]:
 				self.fs0[sigi] = open('raw_wave{s}.dat'.format(s=self.signal_ch[sigi].caen_ch), mode)
